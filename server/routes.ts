@@ -244,14 +244,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get the domain for WebSocket URL
       const domain = process.env.REPLIT_DEV_DOMAIN || process.env.REPLIT_DOMAINS?.split(',')[0] || 'localhost:5000';
       const protocol = domain.includes('localhost') ? 'ws' : 'wss';
-      const streamUrl = `${protocol}://${domain}/api/twilio/stream?callId=${call.id}`;
+      const streamUrl = `${protocol}://${domain}/api/twilio/stream`;
 
-      // Return TwiML response with Media Stream
+      // Return TwiML response with Media Stream and custom parameters
       res.type('text/xml');
       res.send(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <Stream url="${streamUrl}" />
+    <Stream url="${streamUrl}">
+      <Parameter name="callId" value="${call.id}" />
+      <Parameter name="agentId" value="${call.agentId || ''}" />
+    </Stream>
   </Connect>
 </Response>`);
     } catch (error) {
@@ -402,39 +405,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Twilio Media Stream WebSocket handler
   twilioWss.on('connection', async (ws: WebSocket, request: any, url: URL) => {
-    const callId = url.searchParams.get('callId');
-    
-    if (!callId) {
-      console.error('No callId provided in Twilio stream connection');
-      ws.close();
-      return;
-    }
+    console.log(`[Twilio Stream] WebSocket connection established`);
 
-    console.log(`[Twilio Stream] Connection established for call ${callId}`);
+    let callId: string | null = null;
+    let session: OpenAIRealtimeSession | null = null;
 
-    try {
-      // Create OpenAI Realtime session
-      const session = new OpenAIRealtimeSession({
-        callId,
-        twilioWebSocket: ws
-      });
+    ws.on('message', async (data: Buffer) => {
+      try {
+        const message = JSON.parse(data.toString());
+        
+        // Handle the "start" event which contains customParameters
+        if (message.event === 'start') {
+          const customParameters = message.start?.customParameters;
+          callId = customParameters?.callId;
+          
+          if (!callId) {
+            console.error('[Twilio Stream] No callId in customParameters');
+            ws.close();
+            return;
+          }
 
-      await session.start();
-      activeSessions.set(callId, session);
+          console.log(`[Twilio Stream] Session started for call ${callId}`);
 
-      ws.on('message', (data: Buffer) => {
-        try {
-          const message = JSON.parse(data.toString());
+          // Create OpenAI Realtime session
+          session = new OpenAIRealtimeSession({
+            callId,
+            twilioWebSocket: ws
+          });
+
+          await session.start();
+          activeSessions.set(callId, session);
+        } else if (session) {
+          // Forward other messages to the session
           session.handleTwilioMessage(message);
-        } catch (error) {
-          console.error(`[Twilio Stream] Error parsing message:`, error);
         }
-      });
+      } catch (error) {
+        console.error(`[Twilio Stream] Error handling message:`, error);
+      }
+    });
 
-      ws.on('close', () => {
+    ws.on('close', () => {
+      if (callId) {
         console.log(`[Twilio Stream] Connection closed for call ${callId}`);
-        session.cleanup();
-        activeSessions.delete(callId);
+        if (session) {
+          session.cleanup();
+          activeSessions.delete(callId);
+        }
         
         // Update call status
         storage.updateCall(callId, { status: 'completed' }).then((call) => {
@@ -442,18 +458,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             broadcastToClients('call:updated', call);
           }
         });
-      });
+      }
+    });
 
-      ws.on('error', (error) => {
-        console.error(`[Twilio Stream] WebSocket error for call ${callId}:`, error);
+    ws.on('error', (error) => {
+      console.error(`[Twilio Stream] WebSocket error:`, error);
+      if (callId && session) {
         session.cleanup();
         activeSessions.delete(callId);
-      });
-
-    } catch (error) {
-      console.error(`[Twilio Stream] Error starting session for call ${callId}:`, error);
-      ws.close();
-    }
+      }
+    });
   });
 
   return httpServer;
