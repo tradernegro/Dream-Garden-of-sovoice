@@ -204,6 +204,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { From, CallSid } = req.body;
       const callId = req.query.callId as string | undefined;
+      
+      console.log('[Voice Webhook] Received request:', {
+        callId,
+        queryParams: req.query,
+        from: From,
+        callSid: CallSid
+      });
 
       let call: Call;
 
