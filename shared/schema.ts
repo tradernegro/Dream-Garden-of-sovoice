@@ -82,6 +82,24 @@ export const insertSettingSchema = createInsertSchema(settings).omit({
 export type InsertSetting = z.infer<typeof insertSettingSchema>;
 export type Setting = typeof settings.$inferSelect;
 
+// Transcripts table (for storing conversation turns)
+export const transcripts = pgTable("transcripts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  callId: varchar("call_id").notNull().references(() => calls.id, { onDelete: "cascade" }),
+  speaker: text("speaker").notNull(), // "user" or "assistant"
+  text: text("text").notNull(),
+  timestamp: timestamp("timestamp").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertTranscriptSchema = createInsertSchema(transcripts).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertTranscript = z.infer<typeof insertTranscriptSchema>;
+export type Transcript = typeof transcripts.$inferSelect;
+
 // Legacy user table (keeping for compatibility)
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

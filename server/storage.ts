@@ -2,7 +2,8 @@ import {
   type Call, type InsertCall,
   type Agent, type InsertAgent,
   type Setting, type InsertSetting,
-  type User, type InsertUser 
+  type User, type InsertUser,
+  type Transcript, type InsertTranscript
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -15,6 +16,7 @@ export interface IStorage {
   // Call methods
   getCalls(limit?: number): Promise<Call[]>;
   getCall(id: string): Promise<Call | undefined>;
+  getCallByTwilioSid(twilioSid: string): Promise<Call | undefined>;
   createCall(call: InsertCall): Promise<Call>;
   updateCall(id: string, call: Partial<InsertCall>): Promise<Call | undefined>;
   deleteCall(id: string): Promise<boolean>;
@@ -22,9 +24,14 @@ export interface IStorage {
   // Agent methods
   getAgents(): Promise<Agent[]>;
   getAgent(id: string): Promise<Agent | undefined>;
+  getActiveAgent(): Promise<Agent | undefined>;
   createAgent(agent: InsertAgent): Promise<Agent>;
   updateAgent(id: string, agent: Partial<InsertAgent>): Promise<Agent | undefined>;
   deleteAgent(id: string): Promise<boolean>;
+  
+  // Transcript methods
+  getTranscripts(callId: string): Promise<Transcript[]>;
+  createTranscript(transcript: InsertTranscript): Promise<Transcript>;
   
   // Settings methods
   getSetting(key: string): Promise<Setting | undefined>;
@@ -36,12 +43,14 @@ export class MemStorage implements IStorage {
   private calls: Map<string, Call>;
   private agents: Map<string, Agent>;
   private settings: Map<string, Setting>;
+  private transcripts: Map<string, Transcript>;
 
   constructor() {
     this.users = new Map();
     this.calls = new Map();
     this.agents = new Map();
     this.settings = new Map();
+    this.transcripts = new Map();
     
     // Create a default agent
     const defaultAgentId = randomUUID();
@@ -126,6 +135,12 @@ export class MemStorage implements IStorage {
     return this.calls.delete(id);
   }
 
+  async getCallByTwilioSid(twilioSid: string): Promise<Call | undefined> {
+    return Array.from(this.calls.values()).find(
+      (call) => call.metadata && (call.metadata as any).twilioSid === twilioSid
+    );
+  }
+
   // Agent methods
   async getAgents(): Promise<Agent[]> {
     return Array.from(this.agents.values()).sort(
@@ -170,6 +185,33 @@ export class MemStorage implements IStorage {
 
   async deleteAgent(id: string): Promise<boolean> {
     return this.agents.delete(id);
+  }
+
+  async getActiveAgent(): Promise<Agent | undefined> {
+    return Array.from(this.agents.values()).find(
+      (agent) => agent.isActive === 1
+    );
+  }
+
+  // Transcript methods
+  async getTranscripts(callId: string): Promise<Transcript[]> {
+    return Array.from(this.transcripts.values())
+      .filter((t) => t.callId === callId)
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  }
+
+  async createTranscript(insertTranscript: InsertTranscript): Promise<Transcript> {
+    const id = randomUUID();
+    const transcript: Transcript = {
+      callId: insertTranscript.callId,
+      speaker: insertTranscript.speaker,
+      text: insertTranscript.text,
+      timestamp: insertTranscript.timestamp || new Date(),
+      id,
+      createdAt: new Date(),
+    };
+    this.transcripts.set(id, transcript);
+    return transcript;
   }
 
   // Settings methods
