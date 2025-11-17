@@ -1,8 +1,88 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, integer, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// Call statuses
+export const callStatuses = ["queued", "in-progress", "completed", "failed", "no-answer"] as const;
+export type CallStatus = typeof callStatuses[number];
+
+// Call table
+export const calls = pgTable("calls", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  phoneNumber: text("phone_number").notNull(),
+  direction: text("direction").notNull(), // "inbound" or "outbound"
+  status: text("status").notNull(), // "queued", "in-progress", "completed", "failed", "no-answer"
+  duration: integer("duration"), // in seconds
+  recording: text("recording"), // URL or path to recording
+  transcript: text("transcript"),
+  agentId: varchar("agent_id").references(() => agents.id),
+  tags: text("tags").array(), // ["lead", "complaint", "follow-up", etc.]
+  metadata: jsonb("metadata"), // Additional call data
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertCallSchema = createInsertSchema(calls).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+// Schema for updating calls - protects immutable fields
+export const updateCallSchema = insertCallSchema.partial().omit({
+  phoneNumber: true, // Phone number should not change after creation
+  direction: true,    // Direction should not change after creation
+});
+
+export type InsertCall = z.infer<typeof insertCallSchema>;
+export type UpdateCall = z.infer<typeof updateCallSchema>;
+export type Call = typeof calls.$inferSelect;
+
+// Agent configuration table
+export const agents = pgTable("agents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  description: text("description"),
+  prompt: text("prompt").notNull(), // System prompt for the AI
+  voice: text("voice").notNull().default("alloy"), // OpenAI voice ID
+  temperature: integer("temperature").default(1), // 0-2, scaled by 10 (so 10 = 1.0)
+  isActive: integer("is_active").notNull().default(1), // 1 = active, 0 = inactive (boolean)
+  language: text("language").default("en"), // Language code
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertAgentSchema = createInsertSchema(agents).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+// Schema for updating agents - all fields optional
+export const updateAgentSchema = insertAgentSchema.partial();
+
+export type InsertAgent = z.infer<typeof insertAgentSchema>;
+export type UpdateAgent = z.infer<typeof updateAgentSchema>;
+export type Agent = typeof agents.$inferSelect;
+
+// Settings table (for global app settings)
+export const settings = pgTable("settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  key: text("key").notNull().unique(),
+  value: jsonb("value").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertSettingSchema = createInsertSchema(settings).omit({
+  id: true,
+  updatedAt: true,
+});
+
+export type InsertSetting = z.infer<typeof insertSettingSchema>;
+export type Setting = typeof settings.$inferSelect;
+
+// Legacy user table (keeping for compatibility)
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),
