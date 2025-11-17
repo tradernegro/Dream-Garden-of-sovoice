@@ -67,11 +67,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const twilioClient = await getTwilioClient();
           const fromNumber = await getTwilioFromPhoneNumber();
           
+          // Get base URL with protocol
+          const baseUrl = process.env.REPLIT_DOMAINS 
+            ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
+            : 'http://localhost:5000';
+          
           const twilioCall = await twilioClient.calls.create({
             to: call.phoneNumber,
             from: fromNumber,
-            url: `${process.env.REPLIT_DOMAINS?.split(',')[0] || 'http://localhost:5000'}/api/twilio/voice`,
-            statusCallback: `${process.env.REPLIT_DOMAINS?.split(',')[0] || 'http://localhost:5000'}/api/twilio/status`,
+            url: `${baseUrl}/api/twilio/voice`,
+            statusCallback: `${baseUrl}/api/twilio/status`,
             statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
           });
 
