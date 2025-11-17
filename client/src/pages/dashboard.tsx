@@ -1,16 +1,73 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Phone, Clock, TrendingUp, Activity } from "lucide-react";
+import { Phone, Clock, TrendingUp, Activity, PhoneCall } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { Call } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useState } from "react";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import type { Agent } from "@shared/schema";
 
 export default function Dashboard() {
+  const [open, setOpen] = useState(false);
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [selectedAgent, setSelectedAgent] = useState<string>("");
+  const { toast } = useToast();
+
   const { data: calls, isLoading } = useQuery<Call[]>({
     queryKey: ["/api/calls"],
   });
+
+  const { data: agents } = useQuery<Agent[]>({
+    queryKey: ["/api/agents"],
+  });
+
+  const makeCallMutation = useMutation({
+    mutationFn: async (data: { phoneNumber: string; agentId?: string }) => {
+      return apiRequest("POST", "/api/calls", {
+        phoneNumber: data.phoneNumber,
+        direction: "outbound",
+        status: "queued",
+        agentId: data.agentId || undefined,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/calls"] });
+      toast({
+        title: "Call initiated",
+        description: `Calling ${phoneNumber}...`,
+      });
+      setOpen(false);
+      setPhoneNumber("");
+      setSelectedAgent("");
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to initiate call",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleMakeCall = () => {
+    if (!phoneNumber) {
+      toast({
+        title: "Phone number required",
+        description: "Please enter a phone number to call",
+        variant: "destructive",
+      });
+      return;
+    }
+    makeCallMutation.mutate({ phoneNumber, agentId: selectedAgent });
+  };
 
   const stats = {
     totalCalls: calls?.length || 0,
@@ -39,11 +96,76 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-semibold" data-testid="text-dashboard-title">Dashboard</h1>
-        <p className="text-muted-foreground mt-1">
-          Overview of your AI voice assistant performance
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-semibold" data-testid="text-dashboard-title">Dashboard</h1>
+          <p className="text-muted-foreground mt-1">
+            Overview of your AI voice assistant performance
+          </p>
+        </div>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger asChild>
+            <Button size="lg" data-testid="button-make-call">
+              <PhoneCall className="mr-2 h-4 w-4" />
+              Make Outbound Call
+            </Button>
+          </DialogTrigger>
+          <DialogContent data-testid="dialog-make-call">
+            <DialogHeader>
+              <DialogTitle>Make Outbound Call</DialogTitle>
+              <DialogDescription>
+                Enter a phone number to initiate an AI-powered call
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="phone-number">Phone Number</Label>
+                <Input
+                  id="phone-number"
+                  data-testid="input-phone-number"
+                  placeholder="+1234567890"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  type="tel"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Include country code (e.g., +1 for US)
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="agent">AI Agent (Optional)</Label>
+                <Select value={selectedAgent} onValueChange={setSelectedAgent}>
+                  <SelectTrigger id="agent" data-testid="select-agent">
+                    <SelectValue placeholder="Use default agent" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {agents?.map((agent) => (
+                      <SelectItem key={agent.id} value={agent.id}>
+                        {agent.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setOpen(false)}
+                data-testid="button-cancel-call"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleMakeCall}
+                disabled={makeCallMutation.isPending}
+                data-testid="button-confirm-call"
+              >
+                {makeCallMutation.isPending ? "Calling..." : "Make Call"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
 
       {/* Stats Grid */}
