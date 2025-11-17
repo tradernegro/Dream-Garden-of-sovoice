@@ -158,9 +158,9 @@ export class OpenAIRealtimeSession {
 
       case "response.audio.delta":
         // Send audio back to Twilio
-        // OpenAI sends PCM16 at 24kHz, Twilio expects μ-law at 8kHz
-        // For MVP, we need to convert or configure OpenAI to output μ-law
+        console.log(`[Session ${this.callId}] 🔊 Received audio delta, length:`, event.delta?.length || 0);
         if (event.delta && this.streamSid) {
+          console.log(`[Session ${this.callId}] 📤 Sending audio to Twilio, streamSid: ${this.streamSid}`);
           this.sendToTwilio({
             event: "media",
             streamSid: this.streamSid,
@@ -168,6 +168,8 @@ export class OpenAIRealtimeSession {
               payload: event.delta
             }
           });
+        } else {
+          console.log(`[Session ${this.callId}] ❌ Cannot send audio - delta: ${!!event.delta}, streamSid: ${this.streamSid}`);
         }
         break;
 
