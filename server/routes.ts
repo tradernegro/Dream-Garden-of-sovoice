@@ -435,6 +435,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           await session.start();
           activeSessions.set(callId, session);
+          
+          // Also forward the start message to set streamSid
+          session.handleTwilioMessage(message);
         } else if (session) {
           // Forward other messages to the session
           session.handleTwilioMessage(message);
