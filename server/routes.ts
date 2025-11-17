@@ -75,7 +75,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const twilioCall = await twilioClient.calls.create({
             to: call.phoneNumber,
             from: fromNumber,
-            url: `${baseUrl}/api/twilio/voice`,
+            url: `${baseUrl}/api/twilio/voice?callId=${call.id}`,
             statusCallback: `${baseUrl}/api/twilio/status`,
             statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
           });
@@ -203,17 +203,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/twilio/voice", async (req: Request, res: Response) => {
     try {
       const { From, CallSid } = req.body;
+      const callId = req.query.callId as string | undefined;
 
-      // Create call record for inbound call
-      const call = await storage.createCall({
-        phoneNumber: From,
-        direction: "inbound",
-        status: "in-progress",
-        metadata: { twilioSid: CallSid } as any,
-      });
+      let call: Call;
 
-      // Broadcast real-time update
-      broadcastToClients("call:created", call);
+      // If callId is provided (outbound call), use existing call record
+      if (callId) {
+        const existingCall = await storage.getCall(callId);
+        if (!existingCall) {
+          throw new Error(`Call not found: ${callId}`);
+        }
+        call = existingCall;
+        
+        // Update with Twilio SID if not already set
+        if (!call.metadata || !(call.metadata as any).twilioSid) {
+          await storage.updateCall(call.id, {
+            metadata: { twilioSid: CallSid } as any,
+          });
+        }
+      } else {
+        // Create call record for inbound call
+        call = await storage.createCall({
+          phoneNumber: From,
+          direction: "inbound",
+          status: "in-progress",
+          metadata: { twilioSid: CallSid } as any,
+        });
+
+        // Broadcast real-time update
+        broadcastToClients("call:created", call);
+      }
 
       // Get the domain for WebSocket URL
       const domain = process.env.REPLIT_DEV_DOMAIN || process.env.REPLIT_DOMAINS?.split(',')[0] || 'localhost:5000';
