@@ -36,7 +36,12 @@ export class ElevenLabsRealtimeSession {
   private silenceTimeout: NodeJS.Timeout | null = null;
   private agentVoice: string = "EXAVITQu4vr4xnSDxMaL"; // Sarah voice ID
   private agentPrompt: string = "";
-  private SILENCE_THRESHOLD_MS = 800; // 800ms silence triggers processing
+  
+  // Voice Activity Detection (VAD) settings
+  private SILENCE_THRESHOLD_MS = 1500; // 1.5 seconds of silence to trigger processing
+  private VAD_ENERGY_THRESHOLD = 50; // RMS energy threshold for voice detection
+  private isSpeaking = false;
+  private lastSpeechTime = Date.now();
 
   constructor(config: ElevenLabsSessionConfig) {
     this.callId = config.callId;
@@ -103,21 +108,40 @@ export class ElevenLabsRealtimeSession {
         const ulawBuffer = Buffer.from(audioPayload, "base64");
         this.audioBuffer.push(ulawBuffer);
 
-        // Log every 50 chunks to reduce noise
-        if (this.audioBuffer.length % 50 === 0) {
-          console.log(`[ElevenLabs Session ${this.callId}] 🎤 Buffering audio... ${this.audioBuffer.length} chunks (${(this.audioBuffer.length * 160 / 8000).toFixed(1)}s)`);
+        // Voice Activity Detection: Calculate audio energy
+        const energy = this.calculateAudioEnergy(ulawBuffer);
+        const now = Date.now();
+        
+        if (energy > this.VAD_ENERGY_THRESHOLD) {
+          // Speech detected
+          if (!this.isSpeaking) {
+            this.isSpeaking = true;
+            console.log(`[ElevenLabs Session ${this.callId}] 🗣️ Speech started (energy: ${energy.toFixed(1)})`);
+          }
+          this.lastSpeechTime = now;
+          
+          // Reset silence timer
+          if (this.silenceTimeout) {
+            clearTimeout(this.silenceTimeout);
+            this.silenceTimeout = null;
+          }
+        } else {
+          // Low energy - potential silence
+          if (this.isSpeaking && !this.silenceTimeout) {
+            // User was speaking, now potentially silent - start silence timer
+            this.silenceTimeout = setTimeout(() => {
+              const silenceDuration = Date.now() - this.lastSpeechTime;
+              console.log(`[ElevenLabs Session ${this.callId}] 🔇 Silence detected after ${silenceDuration}ms, processing speech...`);
+              this.isSpeaking = false;
+              this.processSpeech();
+            }, this.SILENCE_THRESHOLD_MS);
+          }
         }
 
-        // Reset silence detection timer
-        if (this.silenceTimeout) {
-          clearTimeout(this.silenceTimeout);
+        // Log every 100 chunks to reduce noise
+        if (this.audioBuffer.length % 100 === 0) {
+          console.log(`[ElevenLabs Session ${this.callId}] 🎤 Buffering... ${this.audioBuffer.length} chunks (${(this.audioBuffer.length * 160 / 8000).toFixed(1)}s) | Energy: ${energy.toFixed(1)} | Speaking: ${this.isSpeaking}`);
         }
-
-        // Set new silence detection timer
-        this.silenceTimeout = setTimeout(() => {
-          console.log(`[ElevenLabs Session ${this.callId}] 🔇 Silence detected after ${this.audioBuffer.length} chunks, processing speech...`);
-          this.processSpeech();
-        }, this.SILENCE_THRESHOLD_MS);
         break;
 
       case "stop":
@@ -321,6 +345,25 @@ export class ElevenLabsRealtimeSession {
     });
   }
 
+  /**
+   * Calculate audio energy (RMS) from μ-law encoded buffer
+   * Returns RMS energy value (higher = louder)
+   */
+  private calculateAudioEnergy(ulawBuffer: Buffer): number {
+    // Decode μ-law to PCM16
+    const pcmBuffer = alawmulaw.mulaw.decode(ulawBuffer);
+    const pcmSamples = new Int16Array(pcmBuffer.buffer, pcmBuffer.byteOffset, pcmBuffer.length / 2);
+
+    // Calculate RMS (Root Mean Square) energy
+    let sumSquares = 0;
+    for (let i = 0; i < pcmSamples.length; i++) {
+      sumSquares += pcmSamples[i] * pcmSamples[i];
+    }
+    const rms = Math.sqrt(sumSquares / pcmSamples.length);
+    
+    return rms;
+  }
+
   private sendAudioToTwilio(audioBuffer: Buffer) {
     if (!this.streamSid || this.twilioWs.readyState !== WebSocket.OPEN) {
       console.warn(`[ElevenLabs Session ${this.callId}] Cannot send audio - streamSid: ${this.streamSid}, WebSocket ready: ${this.twilioWs.readyState === WebSocket.OPEN}`);
@@ -338,7 +381,6 @@ export class ElevenLabsRealtimeSession {
     };
 
     this.twilioWs.send(JSON.stringify(mediaMessage));
-    console.log(`[ElevenLabs Session ${this.callId}] ✅ Successfully sent ${audioBuffer.length} bytes to Twilio`);
   }
 
   private cleanup() {
