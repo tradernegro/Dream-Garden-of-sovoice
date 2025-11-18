@@ -129,7 +129,7 @@ Preferred communication style: Simple, everyday language.
 
 **OpenAI Integration:**
 - **GPT-4o Realtime API** for real-time voice conversations during phone calls
-- **Whisper-1** for audio transcription
+- **Whisper-1** for audio transcription (used by both OpenAI and ElevenLabs voice providers)
 - **Voice Selection (13 available voices):**
   - Legacy voices: alloy, echo, shimmer, fable, onyx, nova
   - New expressive voices (2025): ash, ballad, coral, sage, verse
@@ -143,11 +143,23 @@ Preferred communication style: Simple, everyday language.
 - Transcription accepts audio buffers with MIME type specification
 - API key configuration via OPENAI_API_KEY environment variable
 
-**Hybrid AI Architecture:**
-- **Claude Sonnet 4:** Chat-based agent configuration (superior conversational AI, better prompt engineering)
-- **OpenAI:** Voice calls (Realtime API with voice capabilities) + Audio transcription (Whisper)
-- Clean separation: chat interface uses Claude, phone calls use OpenAI
-- Rationale: Claude excels at conversational AI for configuration, OpenAI provides voice capabilities Claude lacks
+**ElevenLabs Integration:**
+- **Text-to-Speech (TTS):** High-quality, natural-sounding voice synthesis
+- **Voice Library:** 20+ premium voices with diverse characteristics and accents
+- **Streaming Audio:** Real-time MP3 audio streaming for low-latency responses
+- **Voice Models:** eleven_turbo_v2_5 for fast, high-quality synthesis
+- **Hybrid Pipeline Architecture:**
+  - Inbound Twilio audio (μ-law/G.711) → Whisper transcription
+  - User transcript → GPT-4 Chat Completion → AI response text
+  - AI text → ElevenLabs TTS → MP3 audio stream
+  - MP3 → μ-law conversion (via FFmpeg) → Twilio audio output
+- **Audio Codec Pipeline:**
+  - μ-law to WAV: alawmulaw + wavefile libraries for Whisper input
+  - MP3 to μ-law: fluent-ffmpeg for Twilio telephony output
+  - Mono 8kHz format for telephony compatibility
+- **Session Management:** `ElevenLabsRealtimeSession` class with silence detection (800ms threshold)
+- **Voice Provider Selection:** Agents configured with `voiceProvider` field ("openai" or "elevenlabs")
+- API key configuration via ELEVENLABS_API_KEY environment variable
 
 **Neon Database:**
 - Serverless PostgreSQL hosting

@@ -18,6 +18,7 @@ import { getTwilioClient, getTwilioFromPhoneNumber } from "./twilio-client";
 import { transcribeAudio } from "./openai-client";
 import { sendChatMessage } from "./claude-client";
 import { OpenAIRealtimeSession } from "./openai-realtime-session";
+import { ElevenLabsRealtimeSession } from "./elevenlabs-realtime-session";
 import { getElevenLabsVoices } from "./elevenlabs-client";
 import { z } from "zod";
 
@@ -764,7 +765,7 @@ Be conversational and helpful. Don't dump all questions at once - gather informa
   const twilioWss = new WebSocketServer({ noServer: true });
   
   // Track active call sessions
-  const activeSessions = new Map<string, OpenAIRealtimeSession>();
+  const activeSessions = new Map<string, OpenAIRealtimeSession | ElevenLabsRealtimeSession>();
 
   httpServer.on('upgrade', (request, socket, head) => {
     const url = new URL(request.url || '', `http://${request.headers.host}`);
@@ -807,7 +808,7 @@ Be conversational and helpful. Don't dump all questions at once - gather informa
     console.log(`[Twilio Stream] WebSocket connection established`);
 
     let callId: string | null = null;
-    let session: OpenAIRealtimeSession | null = null;
+    let session: OpenAIRealtimeSession | ElevenLabsRealtimeSession | null = null;
 
     ws.on('message', async (data: Buffer) => {
       try {
@@ -826,11 +827,43 @@ Be conversational and helpful. Don't dump all questions at once - gather informa
 
           console.log(`[Twilio Stream] Session started for call ${callId}`);
 
-          // Create OpenAI Realtime session
-          session = new OpenAIRealtimeSession({
-            callId,
-            twilioWebSocket: ws
-          });
+          // Get call and agent to determine voice provider
+          const call = await storage.getCall(callId);
+          if (!call) {
+            console.error(`[Twilio Stream] Call not found: ${callId}`);
+            ws.close();
+            return;
+          }
+
+          const agent = call.agentId 
+            ? await storage.getAgent(call.agentId)
+            : await storage.getActiveAgent();
+
+          if (!agent) {
+            console.error(`[Twilio Stream] No agent found for call ${callId}`);
+            ws.close();
+            return;
+          }
+
+          // Create appropriate realtime session based on voice provider
+          const voiceProvider = agent.voiceProvider || "openai";
+          console.log(`[Twilio Stream] Using voice provider: ${voiceProvider} for call ${callId}`);
+
+          if (voiceProvider === "elevenlabs") {
+            // Create ElevenLabs session (Whisper + GPT-4 + ElevenLabs TTS)
+            session = new ElevenLabsRealtimeSession({
+              callId,
+              agentId: agent.id,
+              twilioWebSocket: ws
+            });
+          } else {
+            // Create OpenAI Realtime session (default)
+            session = new OpenAIRealtimeSession({
+              callId,
+              agentId: agent.id,
+              twilioWebSocket: ws
+            });
+          }
 
           await session.start();
           activeSessions.set(callId, session);
