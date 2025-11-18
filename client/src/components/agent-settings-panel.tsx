@@ -39,7 +39,7 @@ export function AgentSettingsPanel({ agentId }: AgentSettingsPanelProps) {
   const [hasChanges, setHasChanges] = useState(false);
 
   const { data: agent, isLoading } = useQuery<Agent>({
-    queryKey: ["/api/agents", agentId],
+    queryKey: [`/api/agents/${agentId}`],
     enabled: !!agentId,
   });
 
@@ -73,7 +73,7 @@ export function AgentSettingsPanel({ agentId }: AgentSettingsPanelProps) {
       return apiRequest("PATCH", `/api/agents/${agentId}`, data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/agents", agentId] });
+      queryClient.invalidateQueries({ queryKey: [`/api/agents/${agentId}`] });
       queryClient.invalidateQueries({ queryKey: ["/api/agents"] });
       setHasChanges(false);
       toast({

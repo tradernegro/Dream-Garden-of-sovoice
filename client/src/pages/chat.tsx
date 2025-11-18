@@ -13,12 +13,13 @@ import { AgentSettingsPanel } from "@/components/agent-settings-panel";
 import { cn } from "@/lib/utils";
 
 export default function Chat() {
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const [input, setInput] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const { toast } = useToast();
+  const isCreatingSession = useRef(false);
+  const { toast} = useToast();
 
   // Get or create session from URL query
   useEffect(() => {
@@ -26,50 +27,43 @@ export default function Chat() {
     const urlSessionId = params.get("session");
     const initialMessage = params.get("message");
     
-    if (urlSessionId) {
+    if (urlSessionId && urlSessionId !== "undefined") {
+      // URL has a valid session ID - use it
       setSessionId(urlSessionId);
-    } else {
-      // Create new session if no session ID in URL
+    } else if (!urlSessionId && !isCreatingSession.current) {
+      // No session in URL and not already creating - create new session
+      isCreatingSession.current = true;
       (apiRequest("POST", "/api/sessions", { title: "New Chat" }) as unknown as Promise<ChatSession>)
         .then((newSession: ChatSession) => {
           setSessionId(newSession.id);
           setLocation(`/chat?session=${newSession.id}`);
           queryClient.invalidateQueries({ queryKey: ["/api/sessions"] });
+          isCreatingSession.current = false;
         })
         .catch((error) => {
+          console.error("[Chat] Failed to create session:", error);
           toast({
             title: "Failed to create session",
             description: error.message,
             variant: "destructive",
           });
+          isCreatingSession.current = false;
         });
     }
     
-    // Set initial message if coming from dashboard
-    if (initialMessage) {
+    // Set initial message if coming from dashboard (only once)
+    if (initialMessage && !input) {
       setInput(decodeURIComponent(initialMessage));
     }
-  }, []);
+  }, [location]); // Only re-run when location changes
 
   const { data: session } = useQuery<ChatSession>({
-    queryKey: ["/api/sessions", sessionId],
-    queryFn: async () => {
-      if (!sessionId) throw new Error("No session ID");
-      const response = await fetch(`/api/sessions/${sessionId}`);
-      if (!response.ok) throw new Error("Failed to fetch session");
-      return response.json();
-    },
+    queryKey: [`/api/sessions/${sessionId}`],
     enabled: !!sessionId,
   });
 
   const { data: messages, isLoading } = useQuery<ChatMessage[]>({
-    queryKey: ["/api/chat", sessionId],
-    queryFn: async () => {
-      if (!sessionId) return [];
-      const response = await fetch(`/api/chat?sessionId=${sessionId}`);
-      if (!response.ok) throw new Error("Failed to fetch messages");
-      return response.json();
-    },
+    queryKey: [`/api/chat?sessionId=${sessionId}`],
     enabled: !!sessionId,
   });
 
@@ -83,8 +77,14 @@ export default function Chat() {
       });
     },
     onSuccess: async (data: any) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/chat", sessionId] });
+      queryClient.invalidateQueries({ queryKey: [`/api/chat?sessionId=${sessionId}`] });
       setInput("");
+      
+      // If an agent was created, reload session to get agentId
+      if (data.agentCreated) {
+        queryClient.invalidateQueries({ queryKey: [`/api/sessions/${sessionId}`] });
+        queryClient.invalidateQueries({ queryKey: ["/api/sessions"] });
+      }
       
       // Update session title from first message
       if (messages?.length === 0 && session?.title === "New Chat") {
@@ -94,7 +94,7 @@ export default function Chat() {
           : firstWords;
         
         await apiRequest("PATCH", `/api/sessions/${sessionId}`, { title: newTitle });
-        queryClient.invalidateQueries({ queryKey: ["/api/sessions", sessionId] });
+        queryClient.invalidateQueries({ queryKey: [`/api/sessions/${sessionId}`] });
         queryClient.invalidateQueries({ queryKey: ["/api/sessions"] });
       }
       
