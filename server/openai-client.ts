@@ -15,15 +15,25 @@ export async function sendChatMessage(
       ...messages.map(msg => ({ role: msg.role, content: msg.content }))
     ];
 
+    console.log("[OpenAI] Sending chat completion request with", chatMessages.length, "messages");
+
     const response = await openai.chat.completions.create({
       model: "gpt-5",
       messages: chatMessages,
       max_completion_tokens: 2000,
     });
 
-    return response.choices[0].message.content || "I apologize, but I couldn't generate a response.";
+    const content = response.choices[0].message.content;
+    console.log("[OpenAI] Response received, content length:", content?.length || 0);
+    
+    if (!content || content.trim().length === 0) {
+      console.warn("[OpenAI] Empty response from GPT-5, using fallback");
+      return "I apologize, but I received an empty response. Could you please rephrase your question?";
+    }
+
+    return content;
   } catch (error) {
-    console.error("OpenAI chat completion error:", error);
+    console.error("[OpenAI] Chat completion error:", error);
     throw new Error("Failed to get AI response: " + (error as Error).message);
   }
 }
