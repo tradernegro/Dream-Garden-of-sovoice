@@ -33,6 +33,11 @@ Preferred communication style: Simple, everyday language.
 
 **Key UI Patterns:**
 - Dashboard with metrics cards and recent activity
+- **Chat-based Agent Configuration:** AI-guided conversational interface for creating agents
+  - Natural language agent creation (e.g., "Create a billing support agent")
+  - AI detects intent and validates configuration automatically
+  - Recent chats displayed in sidebar (NLPearl.ai style)
+  - Session-based chat with persistent message history
 - Call history with search and filtering
 - Detailed call view with transcripts and metadata
 - Agent management with create/edit forms
@@ -76,13 +81,28 @@ Preferred communication style: Simple, everyday language.
 
 2. **agents** - AI agent configurations
    - Name, description, system prompt
-   - Voice selection, temperature setting
+   - Voice selection (13 voices), temperature setting
    - Active/inactive status, language preference
    - Timestamps for creation and updates
 
-3. **settings** - Application configuration key-value store
+3. **chatSessions** - Chat conversation sessions
+   - Session title (auto-generated from first message)
+   - Optional agent ID linkage (when agent created via chat)
+   - Timestamps for creation and updates
 
-4. **users** - User management (legacy/minimal implementation)
+4. **chatMessages** - Individual chat messages
+   - Session ID reference, role (user/assistant)
+   - Message content, timestamp
+   - Persistent conversation history
+
+5. **settings** - Application configuration key-value store
+
+6. **users** - User management (legacy/minimal implementation)
+
+7. **transcripts** - Call transcription records
+   - Call ID reference, speaker identification
+   - Transcript text, timestamp
+   - Real-time conversation tracking
 
 **Schema Management:**
 - Drizzle Kit for migrations (output to `./migrations`)
@@ -99,8 +119,18 @@ Preferred communication style: Simple, everyday language.
 - Client initialization with account SID and API keys
 
 **OpenAI Integration:**
-- **GPT-5** for sentiment analysis and AI conversations
+- **GPT-4o-mini** for chat-based agent configuration and AI conversations
+- **GPT-4o Realtime API** for real-time voice conversations
 - **Whisper-1** for audio transcription
+- **Voice Selection (13 available voices):**
+  - Legacy voices: alloy, echo, shimmer, fable, onyx, nova
+  - New expressive voices (2025): ash, ballad, coral, sage, verse
+  - New Realtime-exclusive voices (2025): cedar, marin
+- **Interruption Handling:** Advanced system with race-condition guards
+  - AI stops speaking immediately when user interrupts
+  - Twilio audio buffer clearing for instant audio cutoff
+  - State tracking prevents duplicate cancel requests
+  - Robust error handling and session stability
 - Sentiment analysis returns rating (1-5 stars) and confidence score
 - Transcription accepts audio buffers with MIME type specification
 - API key configuration via environment variables
