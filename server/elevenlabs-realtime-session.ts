@@ -38,10 +38,12 @@ export class ElevenLabsRealtimeSession {
   private agentPrompt: string = "";
   
   // Voice Activity Detection (VAD) settings
-  private SILENCE_THRESHOLD_MS = 1500; // 1.5 seconds of silence to trigger processing
+  private SILENCE_THRESHOLD_MS = 800; // 800ms of silence to trigger processing (was 1500ms)
   private VAD_ENERGY_THRESHOLD = 50; // RMS energy threshold for voice detection
+  private INTERRUPT_ENERGY_THRESHOLD = 80; // Higher threshold for interruption detection
   private isSpeaking = false;
   private lastSpeechTime = Date.now();
+  private shouldInterrupt = false; // Flag to interrupt AI speech
 
   constructor(config: ElevenLabsSessionConfig) {
     this.callId = config.callId;
@@ -103,20 +105,33 @@ export class ElevenLabsRealtimeSession {
         break;
 
       case "media":
-        // CRITICAL: Ignore incoming audio while AI is speaking (prevents echo/self-listening)
-        if (this.isProcessing) {
-          // AI is currently speaking - discard incoming audio to prevent feedback loop
-          return;
-        }
-
         // Buffer incoming audio (μ-law format from Twilio)
         const audioPayload = message.media.payload;
         const ulawBuffer = Buffer.from(audioPayload, "base64");
-        this.audioBuffer.push(ulawBuffer);
-
+        
         // Voice Activity Detection: Calculate audio energy
         const energy = this.calculateAudioEnergy(ulawBuffer);
         const now = Date.now();
+        
+        // INTERRUPTION DETECTION: Check if user is trying to interrupt while AI is speaking
+        if (this.isProcessing && energy > this.INTERRUPT_ENERGY_THRESHOLD) {
+          if (!this.shouldInterrupt) {
+            this.shouldInterrupt = true;
+            console.log(`[ElevenLabs Session ${this.callId}] 🛑 USER INTERRUPTION DETECTED! (energy: ${energy.toFixed(1)}) - Stopping AI...`);
+            // Clear Twilio audio buffer to stop AI speech immediately
+            this.clearTwilioAudioBuffer();
+          }
+          // Don't buffer audio while AI is being interrupted - prevents echo
+          return;
+        }
+        
+        // If AI is speaking but no strong interruption, discard audio (prevents echo)
+        if (this.isProcessing) {
+          return;
+        }
+
+        // Normal speech processing - buffer the audio
+        this.audioBuffer.push(ulawBuffer);
         
         if (energy > this.VAD_ENERGY_THRESHOLD) {
           // Speech detected
@@ -223,6 +238,7 @@ export class ElevenLabsRealtimeSession {
       console.error(`[ElevenLabs Session ${this.callId}] Error processing speech:`, error);
     } finally {
       this.isProcessing = false;
+      this.shouldInterrupt = false; // Reset interrupt flag
     }
   }
 
@@ -272,10 +288,19 @@ export class ElevenLabsRealtimeSession {
   private async synthesizeAndSendAudio(text: string) {
     try {
       console.log(`[ElevenLabs Session ${this.callId}] Generating speech for: "${text.substring(0, 50)}..."`);
+      
+      // Reset interrupt flag before starting
+      this.shouldInterrupt = false;
 
       let chunkCount = 0;
       // Stream audio from ElevenLabs
       for await (const audioChunk of streamSpeech(text, this.agentVoice, "eleven_turbo_v2_5")) {
+        // Check if user interrupted - stop sending audio immediately
+        if (this.shouldInterrupt) {
+          console.log(`[ElevenLabs Session ${this.callId}] ⚠️ Interruption detected - stopping audio stream at chunk ${chunkCount}`);
+          break; // Stop streaming audio
+        }
+        
         chunkCount++;
         console.log(`[ElevenLabs Session ${this.callId}] Received MP3 chunk ${chunkCount}, size: ${audioChunk.length} bytes`);
         
@@ -289,7 +314,11 @@ export class ElevenLabsRealtimeSession {
         console.log(`[ElevenLabs Session ${this.callId}] Sent chunk ${chunkCount} to Twilio`);
       }
 
-      console.log(`[ElevenLabs Session ${this.callId}] Audio complete - sent ${chunkCount} chunks to Twilio`);
+      if (this.shouldInterrupt) {
+        console.log(`[ElevenLabs Session ${this.callId}] Audio interrupted by user after ${chunkCount} chunks`);
+      } else {
+        console.log(`[ElevenLabs Session ${this.callId}] Audio complete - sent ${chunkCount} chunks to Twilio`);
+      }
     } catch (error) {
       console.error(`[ElevenLabs Session ${this.callId}] TTS error:`, error);
     }
@@ -368,6 +397,21 @@ export class ElevenLabsRealtimeSession {
     const rms = Math.sqrt(sumSquares / pcmSamples.length);
     
     return rms;
+  }
+
+  private clearTwilioAudioBuffer() {
+    if (!this.streamSid || this.twilioWs.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    // Send Twilio "clear" command to immediately stop all queued audio
+    const clearMessage = {
+      event: "clear",
+      streamSid: this.streamSid,
+    };
+    
+    this.twilioWs.send(JSON.stringify(clearMessage));
+    console.log(`[ElevenLabs Session ${this.callId}] 🧹 Cleared Twilio audio buffer`);
   }
 
   private sendAudioToTwilio(audioBuffer: Buffer) {

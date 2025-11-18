@@ -133,6 +133,15 @@ export class OpenAIRealtimeSession {
       case "input_audio_buffer.speech_started":
         console.log(`[Session ${this.callId}] 🎤 User started speaking - interrupting assistant`);
         
+        // ALWAYS clear Twilio buffer first for instant audio cutoff
+        if (this.streamSid) {
+          console.log(`[Session ${this.callId}] 🧹 Clearing Twilio audio buffer IMMEDIATELY`);
+          this.sendToTwilio({
+            event: "clear",
+            streamSid: this.streamSid
+          });
+        }
+        
         // If assistant is currently speaking, interrupt it (but only if not already cancelling)
         if (this.isAssistantSpeaking && this.currentResponseId && !this.isCancelling) {
           console.log(`[Session ${this.callId}] 🛑 Canceling assistant response ${this.currentResponseId}`);
@@ -145,15 +154,6 @@ export class OpenAIRealtimeSession {
             type: "response.cancel",
             response_id: this.currentResponseId
           });
-          
-          // Clear Twilio's audio playback buffer to stop audio immediately
-          if (this.streamSid) {
-            console.log(`[Session ${this.callId}] 🧹 Clearing Twilio audio buffer`);
-            this.sendToTwilio({
-              event: "clear",
-              streamSid: this.streamSid
-            });
-          }
           
           // State will be reset in response.cancelled event handler
         } else if (this.isCancelling) {
