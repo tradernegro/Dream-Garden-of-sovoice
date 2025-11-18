@@ -2,18 +2,21 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { Send, Bot, User } from "lucide-react";
+import { Send, Bot, User, Settings2 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { ChatMessage, ChatSession } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLocation } from "wouter";
+import { AgentSettingsPanel } from "@/components/agent-settings-panel";
+import { cn } from "@/lib/utils";
 
 export default function Chat() {
   const [, setLocation] = useLocation();
   const [input, setInput] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [showSettings, setShowSettings] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
@@ -128,20 +131,50 @@ export default function Chat() {
     );
   }
 
-  return (
-    <div className="flex flex-col h-[calc(100vh-4rem)] max-w-4xl mx-auto">
-      {/* Header */}
-      <div className="p-6 border-b border-border">
-        <h1 className="text-2xl font-semibold" data-testid="text-chat-title">
-          {session?.title || "Chat with SoVoice AI"}
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Ask me anything about creating AI voice agents
-        </p>
-      </div>
+  const hasAgent = !!session?.agentId;
 
-      {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-4">
+  return (
+    <div className={cn(
+      "flex gap-6 h-[calc(100vh-8rem)]",
+      hasAgent ? "max-w-7xl" : "max-w-4xl",
+      "mx-auto"
+    )}>
+      {/* Main Chat Area */}
+      <div className={cn(
+        "flex flex-col flex-1 min-w-0",
+        hasAgent && "border-r"
+      )}>
+        {/* Header */}
+        <div className="p-6 border-b border-border">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold" data-testid="text-chat-title">
+                {session?.title || "Chat with SoVoice AI"}
+              </h1>
+              <p className="text-sm text-muted-foreground mt-1">
+                {hasAgent 
+                  ? "Configure your agent or continue chatting"
+                  : "Ask me anything about creating AI voice agents"
+                }
+              </p>
+            </div>
+            {hasAgent && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowSettings(!showSettings)}
+                className="gap-2"
+                data-testid="button-toggle-settings"
+              >
+                <Settings2 className="h-4 w-4" />
+                {showSettings ? "Hide" : "Show"} Settings
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Messages Area */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
         {isLoading ? (
           <div className="space-y-4">
             {[...Array(3)].map((_, i) => (
@@ -217,29 +250,37 @@ export default function Chat() {
           </div>
         )}
         
-        <div ref={messagesEndRef} />
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Input Area */}
+        <div className="p-6 border-t border-border">
+          <form onSubmit={handleSubmit} className="flex gap-2">
+            <Input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Type your message..."
+              className="flex-1"
+              disabled={sendMessageMutation.isPending}
+              data-testid="input-chat-message"
+            />
+            <Button
+              type="submit"
+              disabled={!input.trim() || sendMessageMutation.isPending}
+              data-testid="button-send-message"
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          </form>
+        </div>
       </div>
 
-      {/* Input Area */}
-      <div className="p-6 border-t border-border">
-        <form onSubmit={handleSubmit} className="flex gap-2">
-          <Input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Type your message..."
-            className="flex-1"
-            disabled={sendMessageMutation.isPending}
-            data-testid="input-chat-message"
-          />
-          <Button
-            type="submit"
-            disabled={!input.trim() || sendMessageMutation.isPending}
-            data-testid="button-send-message"
-          >
-            <Send className="h-4 w-4" />
-          </Button>
-        </form>
-      </div>
+      {/* Agent Settings Panel */}
+      {hasAgent && showSettings && session?.agentId && (
+        <div className="w-96 overflow-y-auto py-6 pr-6">
+          <AgentSettingsPanel agentId={session.agentId} />
+        </div>
+      )}
     </div>
   );
 }
