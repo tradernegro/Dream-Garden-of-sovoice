@@ -36,8 +36,8 @@ export default function Chat() {
       if (sessionId !== urlSessionId) {
         setSessionId(urlSessionId);
       }
-    } else if (!urlSessionId && !isCreatingSession.current) {
-      // No session in URL and not already creating - create new session
+    } else if (!urlSessionId && !sessionId && !isCreatingSession.current) {
+      // No session in URL and no session state - create new session
       isCreatingSession.current = true;
       (apiRequest("POST", "/api/sessions", { title: "New Chat" }) as unknown as Promise<ChatSession>)
         .then((newSession: ChatSession) => {
@@ -61,7 +61,7 @@ export default function Chat() {
     if (initialMessage && !input) {
       setInput(decodeURIComponent(initialMessage));
     }
-  }, [location]); // Only re-run when location changes
+  }, [location, sessionId]); // Re-run when location or sessionId changes
 
   const { data: session } = useQuery<ChatSession>({
     queryKey: [`/api/sessions/${sessionId}`],
