@@ -2,6 +2,60 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Code Highlighting Overrides for Dark Mode */
+.dark pre code.hljs {
+  background-color: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
+
+.dark .hljs-keyword,
+.dark .hljs-selector-tag,
+.dark .hljs-literal {
+  color: hsl(210 100% 70%);
+}
+
+.dark .hljs-string,
+.dark .hljs-title {
+  color: hsl(150 60% 65%);
+}
+
+.dark .hljs-comment {
+  color: hsl(var(--muted-foreground));
+  font-style: italic;
+}
+
+.dark .hljs-number,
+.dark .hljs-attr {
+  color: hsl(30 90% 70%);
+}
+
+/* Light Mode Code Highlighting */
+pre code.hljs {
+  background-color: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal {
+  color: hsl(210 100% 40%);
+}
+
+.hljs-string,
+.hljs-title {
+  color: hsl(150 60% 35%);
+}
+
+.hljs-comment {
+  color: hsl(var(--muted-foreground));
+  font-style: italic;
+}
+
+.hljs-number,
+.hljs-attr {
+  color: hsl(30 90% 40%);
+}
+
 /* LIGHT MODE */
 :root {
   --button-outline: rgba(0,0,0, .10);

@@ -11,6 +11,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useLocation } from "wouter";
 import { AgentSettingsPanel } from "@/components/agent-settings-panel";
 import { cn } from "@/lib/utils";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeHighlight from "rehype-highlight";
+import "highlight.js/styles/github-dark.css";
 
 export default function Chat() {
   const [location, setLocation] = useLocation();
@@ -71,7 +75,8 @@ export default function Chat() {
 
   const sendMessageMutation = useMutation({
     mutationFn: async (content: string) => {
-      if (!sessionId) throw new Error("No session ID");
+      if (!sessionId) throw new Error("No active session. Please refresh the page.");
+      if (!content.trim()) throw new Error("Message cannot be empty.");
       return apiRequest("POST", "/api/chat", {
         role: "user",
         content,
@@ -82,10 +87,15 @@ export default function Chat() {
       queryClient.invalidateQueries({ queryKey: [`/api/chat?sessionId=${sessionId}`] });
       setInput("");
       
-      // If an agent was created, reload session to get agentId
+      // If an agent was created, reload session and show success toast
       if (data.agentCreated) {
         queryClient.invalidateQueries({ queryKey: [`/api/sessions/${sessionId}`] });
         queryClient.invalidateQueries({ queryKey: ["/api/sessions"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/agents"] });
+        toast({
+          title: "Agent Created Successfully!",
+          description: "Your AI agent has been created and is ready to use.",
+        });
       }
       
       // Update session title from first message
@@ -104,9 +114,10 @@ export default function Chat() {
       setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
     },
     onError: (error: Error) => {
+      console.error("[Chat] Failed to send message:", error);
       toast({
         title: "Failed to send message",
-        description: error.message,
+        description: error.message || "An unexpected error occurred. Please try again.",
         variant: "destructive",
       });
     },
@@ -211,7 +222,18 @@ export default function Chat() {
                       : "bg-card"
                   }`}
                 >
-                  <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                  {message.role === "assistant" ? (
+                    <div className="prose prose-sm dark:prose-invert max-w-none prose-headings:mt-3 prose-headings:mb-2 prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-pre:bg-muted prose-pre:p-3 prose-code:text-sm prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none prose-blockquote:border-l-primary prose-blockquote:bg-muted/50 prose-blockquote:py-1 prose-blockquote:px-3 prose-blockquote:my-2">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        rehypePlugins={[rehypeHighlight]}
+                      >
+                        {message.content}
+                      </ReactMarkdown>
+                    </div>
+                  ) : (
+                    <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                  )}
                   <p className="text-xs opacity-70 mt-2">
                     {new Date(message.createdAt).toLocaleTimeString()}
                   </p>
@@ -225,14 +247,28 @@ export default function Chat() {
             ))}
           </>
         ) : (
-          <div className="flex flex-col items-center justify-center h-full text-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 mb-4">
-              <Bot className="h-8 w-8 text-primary" />
+          <div className="flex flex-col items-center justify-center h-full text-center px-4">
+            <div className="flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-primary/20 to-primary/5 mb-6">
+              <Bot className="h-10 w-10 text-primary" />
             </div>
-            <h3 className="text-lg font-medium mb-2">Start a conversation</h3>
-            <p className="text-sm text-muted-foreground max-w-sm">
-              Ask me about creating AI voice agents, configuring calls, or anything else!
+            <h3 className="text-2xl font-semibold mb-3">Welcome to SoVoice AI</h3>
+            <p className="text-sm text-muted-foreground max-w-md mb-6">
+              I'm your AI assistant for creating voice call agents. Ask me anything about:
             </p>
+            <div className="grid gap-3 w-full max-w-md text-left">
+              <Card className="p-3 hover-elevate cursor-pointer" onClick={() => setInput("Create a customer support agent")}>
+                <p className="text-sm font-medium">Creating AI agents</p>
+                <p className="text-xs text-muted-foreground">Configure agents for different use cases</p>
+              </Card>
+              <Card className="p-3 hover-elevate cursor-pointer" onClick={() => setInput("What voice providers are available?")}>
+                <p className="text-sm font-medium">Voice selection</p>
+                <p className="text-xs text-muted-foreground">Choose between OpenAI and ElevenLabs</p>
+              </Card>
+              <Card className="p-3 hover-elevate cursor-pointer" onClick={() => setInput("How do I optimize agent prompts?")}>
+                <p className="text-sm font-medium">Best practices</p>
+                <p className="text-xs text-muted-foreground">Learn prompt engineering tips</p>
+              </Card>
+            </div>
           </div>
         )}
         
@@ -240,13 +276,16 @@ export default function Chat() {
         {sendMessageMutation.isPending && (
           <div className="flex gap-3 justify-start">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary">
-              <Bot className="h-5 w-5 text-primary-foreground" />
+              <Bot className="h-5 w-5 text-primary-foreground animate-pulse" />
             </div>
-            <Card className="p-4">
-              <div className="flex gap-1">
-                <span className="animate-bounce">●</span>
-                <span className="animate-bounce animation-delay-200">●</span>
-                <span className="animate-bounce animation-delay-400">●</span>
+            <Card className="p-4 bg-card">
+              <div className="flex items-center gap-2">
+                <div className="flex gap-1">
+                  <span className="h-2 w-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></span>
+                  <span className="h-2 w-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></span>
+                  <span className="h-2 w-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></span>
+                </div>
+                <span className="text-xs text-muted-foreground">AI is thinking...</span>
               </div>
             </Card>
           </div>
@@ -261,17 +300,25 @@ export default function Chat() {
             <Input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Type your message..."
+              placeholder="Ask me anything about creating AI voice agents..."
               className="flex-1"
               disabled={sendMessageMutation.isPending}
               data-testid="input-chat-message"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey && !sendMessageMutation.isPending) {
+                  e.preventDefault();
+                  handleSubmit();
+                }
+              }}
             />
             <Button
               type="submit"
               disabled={!input.trim() || sendMessageMutation.isPending}
               data-testid="button-send-message"
+              className="gap-2"
             >
               <Send className="h-4 w-4" />
+              {sendMessageMutation.isPending ? "Sending..." : "Send"}
             </Button>
           </form>
         </div>
