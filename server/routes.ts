@@ -17,6 +17,7 @@ import {
 import { getTwilioClient, getTwilioFromPhoneNumber } from "./twilio-client";
 import { transcribeAudio, sendChatMessage } from "./openai-client";
 import { OpenAIRealtimeSession } from "./openai-realtime-session";
+import { z } from "zod";
 
 // WebSocket clients for real-time updates
 const wsClients = new Set<WebSocket>();
@@ -472,11 +473,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get recent conversation history for context
       const recentMessages = await storage.getChatMessages(parsed.sessionId || undefined, 10);
       
-      // Build conversation context for OpenAI
+      // Build conversation context for OpenAI with enhanced agent creation capabilities
       const conversationContext = [
         {
           role: "system" as const,
-          content: "You are SoVoice AI, a helpful assistant for creating and managing AI voice agents. You help users build voice call assistants, configure agents, and answer questions about the platform. Be friendly, professional, and concise."
+          content: `You are SoVoice AI, an intelligent assistant for creating and managing AI voice call agents. 
+
+**Your Primary Capabilities:**
+1. Help users create and configure AI voice agents for phone calls
+2. Guide users through agent setup with natural conversation
+3. Provide expert advice on agent prompts, voice selection, and best practices
+4. Answer questions about the platform
+
+**Agent Creation Workflow:**
+When a user wants to create an agent, guide them through these steps:
+1. Ask for the agent's **name** and **purpose** (e.g., "Customer Support", "Sales Assistant")
+2. Ask what the agent should know and how it should behave (for the **system prompt**)
+3. Offer voice options: alloy (neutral), echo (warm), fable (expressive), onyx (deep), nova (energetic), shimmer (soft)
+4. Ask about language preference (default: English)
+
+**When you have gathered enough information to create an agent, respond with:**
+
+AGENT_CREATE:
+{
+  "name": "Agent Name",
+  "description": "Brief description of what this agent does",
+  "prompt": "Detailed system prompt describing the agent's role, knowledge, and behavior",
+  "voice": "alloy|echo|fable|onyx|nova|shimmer",
+  "language": "en|de|es|fr|etc"
+}
+
+Be conversational and helpful. Don't dump all questions at once - gather information naturally through dialogue. Be professional yet friendly.`
         },
         ...recentMessages.slice(0, -1).map(msg => ({
           role: msg.role as "user" | "assistant",
@@ -489,20 +516,108 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ];
 
       // Get AI response using GPT-4o-mini
-      const aiResponse = await sendChatMessage(conversationContext);
+      let aiResponse = await sendChatMessage(conversationContext);
+
+      // Check if AI wants to create an agent
+      let createdAgent: Agent | null = null;
+      let agentCreationError: string | null = null;
+      
+      if (aiResponse.includes("AGENT_CREATE:")) {
+        try {
+          // Validate session exists before attempting agent creation
+          if (!parsed.sessionId) {
+            throw new Error("Cannot create agent: No active session");
+          }
+
+          // Extract JSON more robustly - find the sentinel, then extract balanced braces
+          const sentinelIndex = aiResponse.indexOf("AGENT_CREATE:");
+          if (sentinelIndex === -1) throw new Error("AGENT_CREATE marker not found");
+          
+          const jsonStart = aiResponse.indexOf("{", sentinelIndex);
+          if (jsonStart === -1) throw new Error("No JSON object found after AGENT_CREATE");
+          
+          // Extract balanced JSON (handle nested braces)
+          let braceCount = 0;
+          let jsonEnd = jsonStart;
+          for (let i = jsonStart; i < aiResponse.length; i++) {
+            if (aiResponse[i] === "{") braceCount++;
+            if (aiResponse[i] === "}") {
+              braceCount--;
+              if (braceCount === 0) {
+                jsonEnd = i + 1;
+                break;
+              }
+            }
+          }
+          
+          const jsonStr = aiResponse.substring(jsonStart, jsonEnd);
+          const rawConfig = JSON.parse(jsonStr);
+          
+          // Validate agent config - extend insertAgentSchema with strict voice enum (optional with default)
+          const agentConfigSchema = insertAgentSchema.extend({
+            voice: z.enum(["alloy", "echo", "fable", "onyx", "nova", "shimmer"]).optional().default("alloy"),
+          });
+          
+          // Build config - only include fields that are present, let schema apply defaults
+          const configToValidate: Record<string, any> = {
+            name: rawConfig.name,
+            prompt: rawConfig.prompt,
+          };
+          
+          // Only add optional fields if provided by user
+          if (rawConfig.description !== undefined) configToValidate.description = rawConfig.description;
+          if (rawConfig.voice !== undefined) configToValidate.voice = rawConfig.voice;
+          if (rawConfig.language !== undefined) configToValidate.language = rawConfig.language;
+          if (rawConfig.temperature !== undefined) configToValidate.temperature = Number(rawConfig.temperature);
+          // isActive is always set to active for new agents
+          configToValidate.isActive = 1;
+          
+          const validatedConfig = agentConfigSchema.parse(configToValidate);
+            
+          // Create the agent
+          createdAgent = await storage.createAgent(validatedConfig);
+
+          // Link agent to session
+          await storage.updateChatSession(parsed.sessionId, {
+            agentId: createdAgent.id,
+          });
+
+          // Broadcast agent creation
+          broadcastToClients("agent:created", createdAgent);
+
+          // Replace the AGENT_CREATE block with a friendly message
+          const beforeCreate = aiResponse.substring(0, sentinelIndex);
+          aiResponse = beforeCreate.trim() + 
+            `\n\n✅ **Agent Created Successfully!**\n\nI've created your agent "${createdAgent.name}"! You can now use this agent for phone calls. The agent is configured and ready to go.\n\nWould you like to test it with a call or make any adjustments?`;
+          
+        } catch (error) {
+          agentCreationError = (error as Error).message;
+          console.error("Failed to create agent:", error);
+          
+          // Inform user of failure - replace only the AGENT_CREATE block, preserve context
+          const sentinelIdx = aiResponse.indexOf("AGENT_CREATE:");
+          const beforeCreate = sentinelIdx >= 0 ? aiResponse.substring(0, sentinelIdx) : aiResponse;
+          aiResponse = beforeCreate.trim() + 
+            `\n\n❌ **Agent Creation Failed**\n\nI encountered an error while trying to create the agent: ${agentCreationError}\n\nLet's try again. Can you provide the agent details once more?`;
+        }
+      }
 
       // Save AI response
       const assistantMessage = await storage.createChatMessage({
         role: "assistant",
         content: aiResponse,
         sessionId: parsed.sessionId,
-        metadata: { model: "gpt-4o-mini" },
+        metadata: { 
+          model: "gpt-4o-mini",
+          agentCreated: createdAgent ? createdAgent.id : undefined
+        },
       });
 
-      // Return both messages
+      // Return both messages and created agent if any
       res.json({
         userMessage,
-        assistantMessage
+        assistantMessage,
+        agentCreated: createdAgent
       });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });

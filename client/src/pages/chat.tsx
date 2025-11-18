@@ -2,7 +2,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { Send, Bot } from "lucide-react";
+import { Send, Bot, User } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -27,7 +27,7 @@ export default function Chat() {
       setSessionId(urlSessionId);
     } else {
       // Create new session if no session ID in URL
-      apiRequest("POST", "/api/sessions", { title: "New Chat" })
+      (apiRequest("POST", "/api/sessions", { title: "New Chat" }) as unknown as Promise<ChatSession>)
         .then((newSession: ChatSession) => {
           setSessionId(newSession.id);
           setLocation(`/chat?session=${newSession.id}`);
