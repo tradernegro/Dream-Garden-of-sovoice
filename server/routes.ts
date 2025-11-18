@@ -15,7 +15,8 @@ import {
   type ChatSession 
 } from "@shared/schema";
 import { getTwilioClient, getTwilioFromPhoneNumber } from "./twilio-client";
-import { transcribeAudio, sendChatMessage } from "./openai-client";
+import { transcribeAudio } from "./openai-client";
+import { sendChatMessage } from "./claude-client";
 import { OpenAIRealtimeSession } from "./openai-realtime-session";
 import { z } from "zod";
 
@@ -473,38 +474,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get recent conversation history for context
       const recentMessages = await storage.getChatMessages(parsed.sessionId || undefined, 10);
       
-      // Build conversation context for OpenAI with enhanced agent creation capabilities
-      const conversationContext = [
-        {
-          role: "system" as const,
-          content: `You are SoVoice AI, an intelligent assistant for creating and managing AI voice call agents. 
+      // Build system prompt for Claude with enhanced agent creation capabilities
+      const systemPrompt = `You are SoVoice AI, an intelligent assistant for creating and managing AI voice call agents.
 
-**Your Primary Capabilities:**
+<capabilities>
 1. Help users create and configure AI voice agents for phone calls
 2. Guide users through agent setup with natural conversation
 3. Provide expert advice on agent prompts, voice selection, and best practices
 4. Answer questions about the platform
+</capabilities>
 
-**Agent Creation Workflow:**
+<agent_creation_workflow>
 When a user wants to create an agent, guide them through these steps:
-1. Ask for the agent's **name** and **purpose** (e.g., "Customer Support", "Sales Assistant")
-2. Ask what the agent should know and how it should behave (for the **system prompt**)
-3. Offer voice options: alloy (neutral), echo (warm), fable (expressive), onyx (deep), nova (energetic), shimmer (soft)
+1. Ask for the agent's name and purpose (e.g., "Customer Support", "Sales Assistant")
+2. Ask what the agent should know and how it should behave (for the system prompt)
+3. Offer voice options:
+   - alloy (neutral, balanced)
+   - echo (warm, friendly)
+   - fable (expressive, engaging)  
+   - onyx (deep, authoritative)
+   - nova (energetic, enthusiastic)
+   - shimmer (soft, gentle)
+   - ash (conversational, natural) - NEW
+   - ballad (smooth, pleasant) - NEW
+   - coral (bright, cheerful) - NEW
+   - sage (wise, calm) - NEW
+   - verse (storytelling, narrative) - NEW
+   - cedar (grounded, stable) - NEW
+   - marin (confident, professional) - NEW
 4. Ask about language preference (default: English)
+</agent_creation_workflow>
 
-**When you have gathered enough information to create an agent, respond with:**
+<agent_creation_format>
+When you have gathered enough information to create an agent, respond with:
 
 AGENT_CREATE:
 {
   "name": "Agent Name",
   "description": "Brief description of what this agent does",
   "prompt": "Detailed system prompt describing the agent's role, knowledge, and behavior",
-  "voice": "alloy|echo|fable|onyx|nova|shimmer",
+  "voice": "alloy|echo|fable|onyx|nova|shimmer|ash|ballad|coral|sage|verse|cedar|marin",
   "language": "en|de|es|fr|etc"
 }
+</agent_creation_format>
 
-Be conversational and helpful. Don't dump all questions at once - gather information naturally through dialogue. Be professional yet friendly.`
-        },
+<interaction_style>
+Be conversational and helpful. Don't dump all questions at once - gather information naturally through dialogue. Be professional yet friendly. Use clear, structured thinking.
+</interaction_style>`;
+
+      // Build conversation messages for Claude (system prompt separate)
+      const conversationMessages = [
         ...recentMessages.slice(0, -1).map(msg => ({
           role: msg.role as "user" | "assistant",
           content: msg.content
@@ -515,8 +534,8 @@ Be conversational and helpful. Don't dump all questions at once - gather informa
         }
       ];
 
-      // Get AI response using GPT-4o-mini
-      let aiResponse = await sendChatMessage(conversationContext);
+      // Get AI response using Claude Sonnet 4
+      let aiResponse = await sendChatMessage(conversationMessages, systemPrompt);
 
       // Check if AI wants to create an agent
       let createdAgent: Agent | null = null;
@@ -613,7 +632,7 @@ Be conversational and helpful. Don't dump all questions at once - gather informa
         content: aiResponse,
         sessionId: parsed.sessionId,
         metadata: { 
-          model: "gpt-4o-mini",
+          model: "claude-sonnet-4-20250514",
           agentCreated: createdAgent ? createdAgent.id : undefined
         },
       });
