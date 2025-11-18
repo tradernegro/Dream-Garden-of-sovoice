@@ -115,10 +115,31 @@ export const insertUserSchema = createInsertSchema(users).pick({
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 
+// Chat sessions table for organizing conversations
+export const chatSessions = pgTable("chat_sessions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  title: text("title").notNull().default("New Chat"),
+  agentId: varchar("agent_id").references(() => agents.id), // Optional: linked agent if created from chat
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertChatSessionSchema = createInsertSchema(chatSessions).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const updateChatSessionSchema = insertChatSessionSchema.partial();
+
+export type InsertChatSession = z.infer<typeof insertChatSessionSchema>;
+export type UpdateChatSession = z.infer<typeof updateChatSessionSchema>;
+export type ChatSession = typeof chatSessions.$inferSelect;
+
 // Chat messages table for AI chat conversations
 export const chatMessages = pgTable("chat_messages", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  sessionId: varchar("session_id"), // Optional session/conversation grouping
+  sessionId: varchar("session_id").references(() => chatSessions.id, { onDelete: "cascade" }), // Link to session
   role: text("role").notNull(), // "user" or "assistant"
   content: text("content").notNull(),
   metadata: jsonb("metadata"), // Additional data (model, tokens, etc.)

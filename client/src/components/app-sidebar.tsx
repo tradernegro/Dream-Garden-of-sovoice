@@ -2,13 +2,13 @@ import { Home, Phone, Bot, Settings, BarChart3, MessageSquare, Plus } from "luci
 import { Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarHeader, SidebarFooter } from "@/components/ui/sidebar";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
-import { useQuery } from "@tanstack/react-query";
-import type { Agent } from "@shared/schema";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import type { ChatSession } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 const menuItems = [
   { title: "Dashboard", url: "/", icon: Home },
-  { title: "Chat", url: "/chat", icon: MessageSquare },
   { title: "Call History", url: "/calls", icon: Phone },
   { title: "Agents", url: "/agents", icon: Bot },
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
@@ -16,9 +16,21 @@ const menuItems = [
 ];
 
 export function AppSidebar() {
-  const [location] = useLocation();
-  const { data: agents, isLoading } = useQuery<Agent[]>({ queryKey: ["/api/agents"] });
-  const recentAgents = agents?.slice(0, 5) || [];
+  const [location, setLocation] = useLocation();
+  const { data: sessions, isLoading } = useQuery<ChatSession[]>({ 
+    queryKey: ["/api/sessions"],
+    queryFn: () => fetch("/api/sessions?limit=10").then(r => r.json())
+  });
+  
+  const createSessionMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("POST", "/api/sessions", { title: "New Chat" });
+    },
+    onSuccess: (newSession: ChatSession) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sessions"] });
+      setLocation(`/chat?session=${newSession.id}`);
+    },
+  });
 
   return (
     <Sidebar>
@@ -32,16 +44,19 @@ export function AppSidebar() {
             <p className="text-xs text-muted-foreground">Voice Assistant</p>
           </div>
         </div>
-        <Link href="/chat">
-          <Button className="w-full mt-4 gap-2" data-testid="button-new-chat">
-            <Plus className="h-4 w-4" />
-            New Chat
-          </Button>
-        </Link>
+        <Button 
+          className="w-full mt-4 gap-2" 
+          data-testid="button-new-chat"
+          onClick={() => createSessionMutation.mutate()}
+          disabled={createSessionMutation.isPending}
+        >
+          <Plus className="h-4 w-4" />
+          New Chat
+        </Button>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Recent Agents</SidebarGroupLabel>
+          <SidebarGroupLabel>Recent Chats</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {isLoading ? (
@@ -49,31 +64,26 @@ export function AppSidebar() {
                   {[...Array(3)].map((_, i) => (
                     <SidebarMenuItem key={i}>
                       <div className="flex items-center gap-2 px-2 py-2">
-                        <Skeleton className="h-8 w-8 rounded-full" />
+                        <Skeleton className="h-8 w-8 rounded-md" />
                         <Skeleton className="h-4 w-32" />
                       </div>
                     </SidebarMenuItem>
                   ))}
                 </>
-              ) : recentAgents.length > 0 ? (
-                recentAgents.map((agent) => (
-                  <SidebarMenuItem key={agent.id}>
-                    <SidebarMenuButton asChild>
-                      <Link href={`/agents?id=${agent.id}`} data-testid={`link-agent-${agent.id}`}>
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
-                          <Bot className="h-4 w-4 text-primary" />
-                        </div>
-                        <span className="truncate">{agent.name}</span>
-                        {agent.isActive === 1 && (
-                          <span className="ml-auto h-2 w-2 rounded-full bg-green-500" />
-                        )}
+              ) : sessions && sessions.length > 0 ? (
+                sessions.map((session) => (
+                  <SidebarMenuItem key={session.id}>
+                    <SidebarMenuButton asChild isActive={location.includes(session.id)}>
+                      <Link href={`/chat?session=${session.id}`} data-testid={`link-session-${session.id}`}>
+                        <MessageSquare className="h-4 w-4" />
+                        <span className="truncate">{session.title}</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 ))
               ) : (
                 <SidebarMenuItem>
-                  <div className="px-2 py-2 text-sm text-muted-foreground">No agents yet</div>
+                  <div className="px-2 py-2 text-sm text-muted-foreground">No chats yet</div>
                 </SidebarMenuItem>
               )}
             </SidebarMenu>

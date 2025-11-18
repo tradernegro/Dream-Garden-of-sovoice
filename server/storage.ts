@@ -4,7 +4,8 @@ import {
   type Setting, type InsertSetting,
   type User, type InsertUser,
   type Transcript, type InsertTranscript,
-  type ChatMessage, type InsertChatMessage
+  type ChatMessage, type InsertChatMessage,
+  type ChatSession, type InsertChatSession
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -38,6 +39,13 @@ export interface IStorage {
   getSetting(key: string): Promise<Setting | undefined>;
   setSetting(key: string, value: any): Promise<Setting>;
   
+  // Chat session methods
+  getChatSessions(limit?: number): Promise<ChatSession[]>;
+  getChatSession(id: string): Promise<ChatSession | undefined>;
+  createChatSession(session: InsertChatSession): Promise<ChatSession>;
+  updateChatSession(id: string, session: Partial<InsertChatSession>): Promise<ChatSession | undefined>;
+  deleteChatSession(id: string): Promise<boolean>;
+  
   // Chat message methods
   getChatMessages(sessionId?: string, limit?: number): Promise<ChatMessage[]>;
   createChatMessage(message: InsertChatMessage): Promise<ChatMessage>;
@@ -50,6 +58,7 @@ export class MemStorage implements IStorage {
   private agents: Map<string, Agent>;
   private settings: Map<string, Setting>;
   private transcripts: Map<string, Transcript>;
+  private chatSessions: Map<string, ChatSession>;
   private chatMessages: Map<string, ChatMessage>;
 
   constructor() {
@@ -58,6 +67,7 @@ export class MemStorage implements IStorage {
     this.agents = new Map();
     this.settings = new Map();
     this.transcripts = new Map();
+    this.chatSessions = new Map();
     this.chatMessages = new Map();
     
     // Create a default agent
@@ -237,6 +247,63 @@ export class MemStorage implements IStorage {
     };
     this.settings.set(key, setting);
     return setting;
+  }
+
+  // Chat session methods
+  async getChatSessions(limit?: number): Promise<ChatSession[]> {
+    let sessions = Array.from(this.chatSessions.values());
+    
+    // Sort by most recent first
+    sessions = sessions.sort(
+      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    );
+    
+    // Apply limit if provided
+    if (limit) {
+      sessions = sessions.slice(0, limit);
+    }
+    
+    return sessions;
+  }
+
+  async getChatSession(id: string): Promise<ChatSession | undefined> {
+    return this.chatSessions.get(id);
+  }
+
+  async createChatSession(insertSession: InsertChatSession): Promise<ChatSession> {
+    const id = randomUUID();
+    const session: ChatSession = {
+      id,
+      title: insertSession.title ?? "New Chat",
+      agentId: insertSession.agentId ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.chatSessions.set(id, session);
+    return session;
+  }
+
+  async updateChatSession(id: string, updateData: Partial<InsertChatSession>): Promise<ChatSession | undefined> {
+    const existing = this.chatSessions.get(id);
+    if (!existing) return undefined;
+    
+    const updated: ChatSession = {
+      ...existing,
+      ...updateData,
+      updatedAt: new Date(),
+    };
+    this.chatSessions.set(id, updated);
+    return updated;
+  }
+
+  async deleteChatSession(id: string): Promise<boolean> {
+    const existed = this.chatSessions.has(id);
+    if (existed) {
+      this.chatSessions.delete(id);
+      // Also delete associated messages
+      await this.deleteChatMessages(id);
+    }
+    return existed;
   }
 
   // Chat message methods

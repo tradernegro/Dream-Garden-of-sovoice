@@ -2,7 +2,18 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
-import { insertCallSchema, updateCallSchema, insertAgentSchema, updateAgentSchema, insertChatMessageSchema, type Call, type Agent } from "@shared/schema";
+import { 
+  insertCallSchema, 
+  updateCallSchema, 
+  insertAgentSchema, 
+  updateAgentSchema, 
+  insertChatMessageSchema, 
+  insertChatSessionSchema,
+  updateChatSessionSchema,
+  type Call, 
+  type Agent,
+  type ChatSession 
+} from "@shared/schema";
 import { getTwilioClient, getTwilioFromPhoneNumber } from "./twilio-client";
 import { transcribeAudio, sendChatMessage } from "./openai-client";
 import { OpenAIRealtimeSession } from "./openai-realtime-session";
@@ -351,6 +362,83 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(setting);
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  // ==================== CHAT SESSION ROUTES ====================
+
+  // Get all chat sessions
+  app.get("/api/sessions", async (req: Request, res: Response) => {
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
+      const sessions = await storage.getChatSessions(limit);
+      res.json(sessions);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Get single chat session
+  app.get("/api/sessions/:id", async (req: Request, res: Response) => {
+    try {
+      const session = await storage.getChatSession(req.params.id);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+      res.json(session);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Create new chat session
+  app.post("/api/sessions", async (req: Request, res: Response) => {
+    try {
+      const parsed = insertChatSessionSchema.parse(req.body);
+      const session = await storage.createChatSession(parsed);
+      
+      // Broadcast to connected clients
+      broadcastToClients("session:created", session);
+      
+      res.json(session);
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  // Update chat session
+  app.patch("/api/sessions/:id", async (req: Request, res: Response) => {
+    try {
+      const parsed = updateChatSessionSchema.parse(req.body);
+      const session = await storage.updateChatSession(req.params.id, parsed);
+      
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+      
+      // Broadcast to connected clients
+      broadcastToClients("session:updated", session);
+      
+      res.json(session);
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  // Delete chat session
+  app.delete("/api/sessions/:id", async (req: Request, res: Response) => {
+    try {
+      const deleted = await storage.deleteChatSession(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+      
+      // Broadcast to connected clients
+      broadcastToClients("session:deleted", { id: req.params.id });
+      
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
     }
   });
 
