@@ -118,9 +118,17 @@ Preferred communication style: Simple, everyday language.
 - Phone number provisioning for inbound/outbound calls
 - Client initialization with account SID and API keys
 
+**Anthropic Integration:**
+- **Claude Sonnet 4 (claude-sonnet-4-20250514)** for chat-based agent configuration
+- Conversational AI for guiding users through agent setup
+- XML-structured system prompts with `<capabilities>`, `<agent_creation_workflow>`, `<when_to_create>` sections
+- Quick create mode: responds to "create it now" with immediate agent creation
+- Superior prompt engineering and natural conversation quality vs. GPT-4o-mini
+- Integrated via `@anthropic-ai/sdk` package
+- API key configuration via ANTHROPIC_API_KEY environment variable
+
 **OpenAI Integration:**
-- **GPT-4o-mini** for chat-based agent configuration and AI conversations
-- **GPT-4o Realtime API** for real-time voice conversations
+- **GPT-4o Realtime API** for real-time voice conversations during phone calls
 - **Whisper-1** for audio transcription
 - **Voice Selection (13 available voices):**
   - Legacy voices: alloy, echo, shimmer, fable, onyx, nova
@@ -133,7 +141,13 @@ Preferred communication style: Simple, everyday language.
   - Robust error handling and session stability
 - Sentiment analysis returns rating (1-5 stars) and confidence score
 - Transcription accepts audio buffers with MIME type specification
-- API key configuration via environment variables
+- API key configuration via OPENAI_API_KEY environment variable
+
+**Hybrid AI Architecture:**
+- **Claude Sonnet 4:** Chat-based agent configuration (superior conversational AI, better prompt engineering)
+- **OpenAI:** Voice calls (Realtime API with voice capabilities) + Audio transcription (Whisper)
+- Clean separation: chat interface uses Claude, phone calls use OpenAI
+- Rationale: Claude excels at conversational AI for configuration, OpenAI provides voice capabilities Claude lacks
 
 **Neon Database:**
 - Serverless PostgreSQL hosting
