@@ -3,6 +3,12 @@ import { storage } from "./storage";
 import { streamSpeech } from "./elevenlabs-client";
 import { transcribeAudio } from "./openai-client";
 import OpenAI from "openai";
+import alawmulaw from "alawmulaw";
+import wavefile from "wavefile";
+import ffmpeg from "fluent-ffmpeg";
+import { Readable } from "stream";
+
+const { WaveFile } = wavefile;
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -191,10 +197,6 @@ export class ElevenLabsRealtimeSession {
   }
 
   private convertULawToWav(ulawBuffer: Buffer): Buffer {
-    // Import μ-law codec
-    const alawmulaw = require('alawmulaw');
-    const { WaveFile } = require('wavefile');
-    
     // Decode μ-law to PCM16
     const ulawArray = new Uint8Array(ulawBuffer);
     const pcm16Samples = alawmulaw.mulaw.decode(ulawArray);
@@ -242,10 +244,6 @@ export class ElevenLabsRealtimeSession {
   }
 
   private async convertMp3ToULaw(mp3Buffer: Buffer): Promise<Buffer> {
-    const ffmpeg = require('fluent-ffmpeg');
-    const alawmulaw = require('alawmulaw');
-    const { Readable } = require('stream');
-    
     return new Promise((resolve, reject) => {
       const chunks: Buffer[] = [];
       const inputStream = Readable.from(mp3Buffer);
