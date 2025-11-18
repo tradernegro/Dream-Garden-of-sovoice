@@ -71,9 +71,9 @@ export class ElevenLabsRealtimeSession {
     });
 
     console.log(`[ElevenLabs Session ${this.callId}] Configured with voice: ${this.agentVoice}`);
+    console.log(`[ElevenLabs Session ${this.callId}] Waiting for Twilio stream to be ready before sending greeting...`);
     
-    // Send initial greeting
-    await this.sendGreeting();
+    // Don't send greeting yet - wait for streamSid to be set via handleTwilioMessage
   }
 
   private async sendGreeting() {
@@ -91,6 +91,10 @@ export class ElevenLabsRealtimeSession {
       case "start":
         this.streamSid = message.start.streamSid;
         console.log(`[ElevenLabs Session ${this.callId}] Twilio stream started, streamSid: ${this.streamSid}`);
+        
+        // Now that stream is ready, send the initial greeting
+        console.log(`[ElevenLabs Session ${this.callId}] Stream ready, sending greeting now...`);
+        await this.sendGreeting();
         break;
 
       case "media":
@@ -308,6 +312,7 @@ export class ElevenLabsRealtimeSession {
 
   private sendAudioToTwilio(audioBuffer: Buffer) {
     if (!this.streamSid || this.twilioWs.readyState !== WebSocket.OPEN) {
+      console.warn(`[ElevenLabs Session ${this.callId}] Cannot send audio - streamSid: ${this.streamSid}, WebSocket ready: ${this.twilioWs.readyState === WebSocket.OPEN}`);
       return;
     }
 
@@ -322,6 +327,7 @@ export class ElevenLabsRealtimeSession {
     };
 
     this.twilioWs.send(JSON.stringify(mediaMessage));
+    console.log(`[ElevenLabs Session ${this.callId}] ✅ Successfully sent ${audioBuffer.length} bytes to Twilio`);
   }
 
   private cleanup() {
