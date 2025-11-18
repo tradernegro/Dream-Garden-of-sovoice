@@ -87,8 +87,6 @@ export class ElevenLabsRealtimeSession {
   }
 
   async handleTwilioMessage(message: any) {
-    console.log(`[ElevenLabs Session ${this.callId}] 📨 Received Twilio message: ${message.event}`);
-    
     switch (message.event) {
       case "start":
         this.streamSid = message.start.streamSid;
@@ -103,8 +101,12 @@ export class ElevenLabsRealtimeSession {
         // Buffer incoming audio (μ-law format from Twilio)
         const audioPayload = message.media.payload;
         const ulawBuffer = Buffer.from(audioPayload, "base64");
-        console.log(`[ElevenLabs Session ${this.callId}] 🎤 Received audio chunk: ${ulawBuffer.length} bytes, total buffer: ${this.audioBuffer.length} chunks`);
         this.audioBuffer.push(ulawBuffer);
+
+        // Log every 50 chunks to reduce noise
+        if (this.audioBuffer.length % 50 === 0) {
+          console.log(`[ElevenLabs Session ${this.callId}] 🎤 Buffering audio... ${this.audioBuffer.length} chunks (${(this.audioBuffer.length * 160 / 8000).toFixed(1)}s)`);
+        }
 
         // Reset silence detection timer
         if (this.silenceTimeout) {
@@ -113,18 +115,19 @@ export class ElevenLabsRealtimeSession {
 
         // Set new silence detection timer
         this.silenceTimeout = setTimeout(() => {
-          console.log(`[ElevenLabs Session ${this.callId}] 🔇 Silence detected (${this.SILENCE_THRESHOLD_MS}ms), processing speech...`);
+          console.log(`[ElevenLabs Session ${this.callId}] 🔇 Silence detected after ${this.audioBuffer.length} chunks, processing speech...`);
           this.processSpeech();
         }, this.SILENCE_THRESHOLD_MS);
         break;
 
       case "stop":
         console.log(`[ElevenLabs Session ${this.callId}] Twilio stream stopped`);
+        // Process any remaining audio before cleanup
+        if (this.audioBuffer.length > 0) {
+          console.log(`[ElevenLabs Session ${this.callId}] Processing remaining ${this.audioBuffer.length} chunks before closing...`);
+          await this.processSpeech();
+        }
         this.cleanup();
-        break;
-        
-      default:
-        console.log(`[ElevenLabs Session ${this.callId}] ⚠️ Unhandled Twilio event: ${message.event}`);
         break;
     }
   }
