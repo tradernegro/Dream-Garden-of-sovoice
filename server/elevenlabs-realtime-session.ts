@@ -228,22 +228,31 @@ export class ElevenLabsRealtimeSession {
     try {
       console.log(`[ElevenLabs Session ${this.callId}] Generating speech for: "${text.substring(0, 50)}..."`);
 
+      let chunkCount = 0;
       // Stream audio from ElevenLabs
       for await (const audioChunk of streamSpeech(text, this.agentVoice, "eleven_turbo_v2_5")) {
+        chunkCount++;
+        console.log(`[ElevenLabs Session ${this.callId}] Received MP3 chunk ${chunkCount}, size: ${audioChunk.length} bytes`);
+        
         // Convert MP3 to μ-law
+        console.log(`[ElevenLabs Session ${this.callId}] Converting MP3 to μ-law...`);
         const ulawChunk = await this.convertMp3ToULaw(audioChunk);
+        console.log(`[ElevenLabs Session ${this.callId}] Converted to μ-law, size: ${ulawChunk.length} bytes`);
         
         // Send to Twilio
         this.sendAudioToTwilio(ulawChunk);
+        console.log(`[ElevenLabs Session ${this.callId}] Sent chunk ${chunkCount} to Twilio`);
       }
 
-      console.log(`[ElevenLabs Session ${this.callId}] Audio sent to Twilio`);
+      console.log(`[ElevenLabs Session ${this.callId}] Audio complete - sent ${chunkCount} chunks to Twilio`);
     } catch (error) {
       console.error(`[ElevenLabs Session ${this.callId}] TTS error:`, error);
     }
   }
 
   private async convertMp3ToULaw(mp3Buffer: Buffer): Promise<Buffer> {
+    console.log(`[ElevenLabs Session ${this.callId}] Starting MP3 to μ-law conversion, input size: ${mp3Buffer.length} bytes`);
+    
     return new Promise((resolve, reject) => {
       const chunks: Buffer[] = [];
       const inputStream = Readable.from(mp3Buffer);
@@ -254,6 +263,9 @@ export class ElevenLabsRealtimeSession {
         .audioChannels(1) // Mono
         .audioFrequency(8000) // 8kHz for Twilio
         .format('s16le') // Raw PCM16
+        .on('start', (commandLine: string) => {
+          console.log(`[ElevenLabs Session ${this.callId}] FFmpeg started: ${commandLine}`);
+        })
         .on('error', (err: Error) => {
           console.error(`[ElevenLabs Session ${this.callId}] FFmpeg error - audio conversion failed:`, err);
           // Return silence instead of invalid MP3 data
@@ -264,6 +276,7 @@ export class ElevenLabsRealtimeSession {
         })
         .on('end', () => {
           try {
+            console.log(`[ElevenLabs Session ${this.callId}] FFmpeg conversion complete, PCM chunks: ${chunks.length}, total bytes: ${chunks.reduce((sum, c) => sum + c.length, 0)}`);
             const pcmBuffer = Buffer.concat(chunks);
             // Convert PCM16 to μ-law
             const pcm16Array = new Int16Array(
@@ -271,7 +284,9 @@ export class ElevenLabsRealtimeSession {
               pcmBuffer.byteOffset, 
               pcmBuffer.length / 2
             );
+            console.log(`[ElevenLabs Session ${this.callId}] Converting PCM16 to μ-law, samples: ${pcm16Array.length}`);
             const ulawArray = alawmulaw.mulaw.encode(pcm16Array);
+            console.log(`[ElevenLabs Session ${this.callId}] μ-law encoding complete, output size: ${ulawArray.length} bytes`);
             resolve(Buffer.from(ulawArray));
           } catch (error) {
             console.error(`[ElevenLabs Session ${this.callId}] μ-law encoding error - returning silence:`, error);
@@ -285,6 +300,7 @@ export class ElevenLabsRealtimeSession {
       // Pipe to collect data chunks
       const outputStream = command.pipe();
       outputStream.on('data', (chunk: Buffer) => {
+        console.log(`[ElevenLabs Session ${this.callId}] FFmpeg output chunk received: ${chunk.length} bytes`);
         chunks.push(chunk);
       });
     });
