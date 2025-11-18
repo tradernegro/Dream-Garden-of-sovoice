@@ -87,6 +87,8 @@ export class ElevenLabsRealtimeSession {
   }
 
   async handleTwilioMessage(message: any) {
+    console.log(`[ElevenLabs Session ${this.callId}] 📨 Received Twilio message: ${message.event}`);
+    
     switch (message.event) {
       case "start":
         this.streamSid = message.start.streamSid;
@@ -101,6 +103,7 @@ export class ElevenLabsRealtimeSession {
         // Buffer incoming audio (μ-law format from Twilio)
         const audioPayload = message.media.payload;
         const ulawBuffer = Buffer.from(audioPayload, "base64");
+        console.log(`[ElevenLabs Session ${this.callId}] 🎤 Received audio chunk: ${ulawBuffer.length} bytes, total buffer: ${this.audioBuffer.length} chunks`);
         this.audioBuffer.push(ulawBuffer);
 
         // Reset silence detection timer
@@ -110,6 +113,7 @@ export class ElevenLabsRealtimeSession {
 
         // Set new silence detection timer
         this.silenceTimeout = setTimeout(() => {
+          console.log(`[ElevenLabs Session ${this.callId}] 🔇 Silence detected (${this.SILENCE_THRESHOLD_MS}ms), processing speech...`);
           this.processSpeech();
         }, this.SILENCE_THRESHOLD_MS);
         break;
@@ -117,6 +121,10 @@ export class ElevenLabsRealtimeSession {
       case "stop":
         console.log(`[ElevenLabs Session ${this.callId}] Twilio stream stopped`);
         this.cleanup();
+        break;
+        
+      default:
+        console.log(`[ElevenLabs Session ${this.callId}] ⚠️ Unhandled Twilio event: ${message.event}`);
         break;
     }
   }
