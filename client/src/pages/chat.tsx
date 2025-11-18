@@ -76,11 +76,12 @@ export default function Chat() {
     mutationFn: async (content: string) => {
       if (!sessionId) throw new Error("No active session. Please refresh the page.");
       if (!content.trim()) throw new Error("Message cannot be empty.");
-      return apiRequest("POST", "/api/chat", {
+      const response = await apiRequest("POST", "/api/chat", {
         role: "user",
         content,
         sessionId,
       });
+      return response.json();
     },
     onSuccess: async (data: any) => {
       queryClient.invalidateQueries({ queryKey: [`/api/chat?sessionId=${sessionId}`] });
@@ -97,8 +98,8 @@ export default function Chat() {
         });
       }
       
-      // Update session title from first message
-      if (messages?.length === 0 && session?.title === "New Chat") {
+      // Update session title from first message (defensive check)
+      if (messages?.length === 0 && session?.title === "New Chat" && data.userMessage?.content) {
         const firstWords = data.userMessage.content.slice(0, 40);
         const newTitle = firstWords.length < data.userMessage.content.length 
           ? `${firstWords}...` 
