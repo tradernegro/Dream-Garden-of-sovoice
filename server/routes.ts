@@ -554,8 +554,13 @@ Be conversational and helpful. Don't dump all questions at once - gather informa
           const rawConfig = JSON.parse(jsonStr);
           
           // Validate agent config - extend insertAgentSchema with strict voice enum (optional with default)
+          // Updated with new OpenAI Realtime voices (2025): cedar, marin, ash, ballad, coral, sage, verse
           const agentConfigSchema = insertAgentSchema.extend({
-            voice: z.enum(["alloy", "echo", "fable", "onyx", "nova", "shimmer"]).optional().default("alloy"),
+            voice: z.enum([
+              "alloy", "echo", "shimmer", "fable", "onyx", "nova",  // Legacy voices (backward compatible)
+              "ash", "ballad", "coral", "sage", "verse",            // New expressive voices
+              "cedar", "marin"                                      // New Realtime-exclusive voices
+            ]).optional().default("alloy"),
           });
           
           // Build config - only include fields that are present, let schema apply defaults

@@ -14,6 +14,9 @@ export class OpenAIRealtimeSession {
   private twilioWs: WebSocket;
   private streamSid: string | null = null;
   private conversationTranscript: Array<{ speaker: string; text: string; timestamp: Date }> = [];
+  private currentResponseId: string | null = null;
+  private isAssistantSpeaking: boolean = false;
+  private isCancelling: boolean = false;
 
   constructor(config: RealtimeSessionConfig) {
     this.callId = config.callId;
@@ -128,7 +131,34 @@ export class OpenAIRealtimeSession {
         break;
 
       case "input_audio_buffer.speech_started":
-        console.log(`[Session ${this.callId}] User started speaking`);
+        console.log(`[Session ${this.callId}] 🎤 User started speaking - interrupting assistant`);
+        
+        // If assistant is currently speaking, interrupt it (but only if not already cancelling)
+        if (this.isAssistantSpeaking && this.currentResponseId && !this.isCancelling) {
+          console.log(`[Session ${this.callId}] 🛑 Canceling assistant response ${this.currentResponseId}`);
+          
+          // Mark as cancelling to prevent duplicate cancel requests
+          this.isCancelling = true;
+          
+          // Cancel the ongoing response with response_id
+          this.sendToOpenAI({
+            type: "response.cancel",
+            response_id: this.currentResponseId
+          });
+          
+          // Clear Twilio's audio playback buffer to stop audio immediately
+          if (this.streamSid) {
+            console.log(`[Session ${this.callId}] 🧹 Clearing Twilio audio buffer`);
+            this.sendToTwilio({
+              event: "clear",
+              streamSid: this.streamSid
+            });
+          }
+          
+          // State will be reset in response.cancelled event handler
+        } else if (this.isCancelling) {
+          console.log(`[Session ${this.callId}] ⏭️ Ignoring duplicate speech_started (cancel already in progress)`);
+        }
         break;
 
       case "input_audio_buffer.speech_stopped":
@@ -153,7 +183,9 @@ export class OpenAIRealtimeSession {
         break;
 
       case "response.created":
-        console.log(`[Session ${this.callId}] Response created`);
+        console.log(`[Session ${this.callId}] Response created:`, event.response?.id);
+        this.currentResponseId = event.response?.id || null;
+        this.isAssistantSpeaking = true;
         break;
 
       case "response.audio.delta":
@@ -214,6 +246,10 @@ export class OpenAIRealtimeSession {
 
       case "response.done":
         console.log(`[Session ${this.callId}] Response completed`);
+        this.isAssistantSpeaking = false;
+        this.currentResponseId = null;
+        this.isCancelling = false; // Reset cancel flag
+        
         // Assistant finished responding
         const lastItem = this.conversationTranscript[this.conversationTranscript.length - 1];
         if (lastItem && lastItem.speaker === "assistant" && lastItem.text) {
@@ -225,6 +261,13 @@ export class OpenAIRealtimeSession {
             timestamp: lastItem.timestamp
           });
         }
+        break;
+      
+      case "response.cancelled":
+        console.log(`[Session ${this.callId}] ⚠️ Response cancelled (user interrupted)`);
+        this.isAssistantSpeaking = false;
+        this.currentResponseId = null;
+        this.isCancelling = false; // Reset cancel flag to allow new interruptions
         break;
 
       case "error":

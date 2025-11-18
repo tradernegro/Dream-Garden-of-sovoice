@@ -45,7 +45,7 @@ export const agents = pgTable("agents", {
   name: text("name").notNull(),
   description: text("description"),
   prompt: text("prompt").notNull(), // System prompt for the AI
-  voice: text("voice").notNull().default("alloy"), // OpenAI voice ID
+  voice: text("voice").notNull().default("alloy"), // OpenAI Realtime voice: alloy, echo, shimmer, fable, onyx, nova (legacy), ash, ballad, coral, sage, verse, cedar, marin (new)
   temperature: integer("temperature").default(1), // 0-2, scaled by 10 (so 10 = 1.0)
   isActive: integer("is_active").notNull().default(1), // 1 = active, 0 = inactive (boolean)
   language: text("language").default("en"), // Language code
