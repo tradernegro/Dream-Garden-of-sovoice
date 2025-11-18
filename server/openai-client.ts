@@ -5,6 +5,30 @@ import OpenAI from "openai";
 // This is using OpenAI's API, which points to OpenAI's API servers and requires your own API key.
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+export async function sendChatMessage(
+  messages: Array<{ role: "user" | "assistant"; content: string }>,
+  systemPrompt?: string
+): Promise<string> {
+  try {
+    const chatMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      ...(systemPrompt ? [{ role: "system" as const, content: systemPrompt }] : []),
+      ...messages.map(msg => ({ role: msg.role, content: msg.content }))
+    ];
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-5",
+      messages: chatMessages,
+      temperature: 0.7,
+      max_tokens: 2000,
+    });
+
+    return response.choices[0].message.content || "I apologize, but I couldn't generate a response.";
+  } catch (error) {
+    console.error("OpenAI chat completion error:", error);
+    throw new Error("Failed to get AI response: " + (error as Error).message);
+  }
+}
+
 export async function transcribeAudio(audioBuffer: Buffer, mimeType: string = "audio/mpeg"): Promise<{ text: string }> {
   try {
     const file = new File([audioBuffer], "audio.mp3", { type: mimeType });
@@ -53,25 +77,6 @@ export async function analyzeSentiment(text: string): Promise<{
   } catch (error) {
     console.error("Sentiment analysis error:", error);
     throw new Error("Failed to analyze sentiment: " + (error as Error).message);
-  }
-}
-
-// Chat with GPT-4o-mini for cost-effective AI conversations
-export async function sendChatMessage(
-  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>
-): Promise<string> {
-  try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini", // Cost-effective model for chat
-      messages: messages,
-      temperature: 0.7,
-      max_tokens: 1000,
-    });
-
-    return response.choices[0].message.content || "I apologize, but I couldn't generate a response.";
-  } catch (error) {
-    console.error("Chat completion error:", error);
-    throw new Error("Failed to get AI response: " + (error as Error).message);
   }
 }
 

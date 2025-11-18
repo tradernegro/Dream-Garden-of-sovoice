@@ -16,7 +16,7 @@ import {
 } from "@shared/schema";
 import { getTwilioClient, getTwilioFromPhoneNumber } from "./twilio-client";
 import { transcribeAudio } from "./openai-client";
-import { sendChatMessage } from "./claude-client";
+import { sendChatMessage } from "./openai-client";
 import { OpenAIRealtimeSession } from "./openai-realtime-session";
 import { ElevenLabsRealtimeSession } from "./elevenlabs-realtime-session";
 import { getElevenLabsVoices } from "./elevenlabs-client";
@@ -762,7 +762,7 @@ Remember: Your goal is to empower users to create exceptional AI voice agents. C
         }
       ];
 
-      // Get AI response using Claude Sonnet 4
+      // Get AI response using ChatGPT (GPT-5)
       let aiResponse = await sendChatMessage(conversationMessages, systemPrompt);
 
       // Check if AI wants to create an agent
@@ -857,7 +857,7 @@ Remember: Your goal is to empower users to create exceptional AI voice agents. C
         content: aiResponse,
         sessionId: parsed.sessionId,
         metadata: { 
-          model: "claude-sonnet-4-20250514",
+          model: "gpt-5",
           agentCreated: createdAgent ? createdAgent.id : undefined
         },
       });
