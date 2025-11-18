@@ -32,15 +32,14 @@ export default function Chat() {
     const initialMessage = params.get("message");
     
     if (urlSessionId && urlSessionId !== "undefined") {
-      // URL has a valid session ID - use it (only if different from current)
-      if (sessionId !== urlSessionId) {
-        setSessionId(urlSessionId);
-      }
-    } else if (!urlSessionId && !sessionId && !isCreatingSession.current) {
-      // No session in URL and no session state - create new session
+      // URL has a valid session ID - use it
+      setSessionId(urlSessionId);
+    } else if (!urlSessionId && !isCreatingSession.current) {
+      // No session in URL - create new session
       isCreatingSession.current = true;
-      (apiRequest("POST", "/api/sessions", { title: "New Chat" }) as unknown as Promise<ChatSession>)
-        .then((newSession: ChatSession) => {
+      apiRequest("POST", "/api/sessions", { title: "New Chat" })
+        .then(async (response) => {
+          const newSession = await response.json() as ChatSession;
           setSessionId(newSession.id);
           setLocation(`/chat?session=${newSession.id}`);
           queryClient.invalidateQueries({ queryKey: ["/api/sessions"] });
@@ -61,7 +60,7 @@ export default function Chat() {
     if (initialMessage && !input) {
       setInput(decodeURIComponent(initialMessage));
     }
-  }, [location, sessionId]); // Re-run when location or sessionId changes
+  }, [location]); // Only re-run when location changes
 
   const { data: session } = useQuery<ChatSession>({
     queryKey: [`/api/sessions/${sessionId}`],
