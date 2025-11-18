@@ -2,9 +2,9 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
-import { insertCallSchema, updateCallSchema, insertAgentSchema, updateAgentSchema, type Call, type Agent } from "@shared/schema";
+import { insertCallSchema, updateCallSchema, insertAgentSchema, updateAgentSchema, insertChatMessageSchema, type Call, type Agent } from "@shared/schema";
 import { getTwilioClient, getTwilioFromPhoneNumber } from "./twilio-client";
-import { transcribeAudio } from "./openai-client";
+import { transcribeAudio, sendChatMessage } from "./openai-client";
 import { OpenAIRealtimeSession } from "./openai-realtime-session";
 
 // WebSocket clients for real-time updates
@@ -351,6 +351,86 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(setting);
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  // ==================== CHAT ROUTES ====================
+
+  // Get chat messages
+  app.get("/api/chat", async (req: Request, res: Response) => {
+    try {
+      const sessionId = req.query.sessionId as string | undefined;
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
+      const messages = await storage.getChatMessages(sessionId, limit);
+      res.json(messages);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Send chat message and get AI response
+  app.post("/api/chat", async (req: Request, res: Response) => {
+    try {
+      const parsed = insertChatMessageSchema.parse(req.body);
+      
+      // Save user message
+      const userMessage = await storage.createChatMessage({
+        role: "user",
+        content: parsed.content,
+        sessionId: parsed.sessionId,
+        metadata: parsed.metadata,
+      });
+
+      // Get recent conversation history for context
+      const recentMessages = await storage.getChatMessages(parsed.sessionId || undefined, 10);
+      
+      // Build conversation context for OpenAI
+      const conversationContext = [
+        {
+          role: "system" as const,
+          content: "You are SoVoice AI, a helpful assistant for creating and managing AI voice agents. You help users build voice call assistants, configure agents, and answer questions about the platform. Be friendly, professional, and concise."
+        },
+        ...recentMessages.slice(0, -1).map(msg => ({
+          role: msg.role as "user" | "assistant",
+          content: msg.content
+        })),
+        {
+          role: "user" as const,
+          content: parsed.content
+        }
+      ];
+
+      // Get AI response using GPT-4o-mini
+      const aiResponse = await sendChatMessage(conversationContext);
+
+      // Save AI response
+      const assistantMessage = await storage.createChatMessage({
+        role: "assistant",
+        content: aiResponse,
+        sessionId: parsed.sessionId,
+        metadata: { model: "gpt-4o-mini" },
+      });
+
+      // Return both messages
+      res.json({
+        userMessage,
+        assistantMessage
+      });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  // Delete chat history for a session
+  app.delete("/api/chat/:sessionId", async (req: Request, res: Response) => {
+    try {
+      const deleted = await storage.deleteChatMessages(req.params.sessionId);
+      if (!deleted) {
+        return res.status(404).json({ error: "No messages found for this session" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
     }
   });
 

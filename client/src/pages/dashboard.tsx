@@ -1,11 +1,9 @@
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Phone, Clock, TrendingUp, Activity, PhoneCall } from "lucide-react";
-import { Link } from "wouter";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { Card } from "@/components/ui/card";
+import { PhoneIncoming, PhoneOutgoing, Send, User } from "lucide-react";
+import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import type { Call } from "@shared/schema";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,14 +14,12 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Agent } from "@shared/schema";
 
 export default function Dashboard() {
-  const [open, setOpen] = useState(false);
+  const [, setLocation] = useLocation();
+  const [chatInput, setChatInput] = useState("");
+  const [outboundDialogOpen, setOutboundDialogOpen] = useState(false);
   const [phoneNumber, setPhoneNumber] = useState("");
   const [selectedAgent, setSelectedAgent] = useState<string>("");
   const { toast } = useToast();
-
-  const { data: calls, isLoading } = useQuery<Call[]>({
-    queryKey: ["/api/calls"],
-  });
 
   const { data: agents } = useQuery<Agent[]>({
     queryKey: ["/api/agents"],
@@ -44,7 +40,7 @@ export default function Dashboard() {
         title: "Call initiated",
         description: `Calling ${phoneNumber}...`,
       });
-      setOpen(false);
+      setOutboundDialogOpen(false);
       setPhoneNumber("");
       setSelectedAgent("");
     },
@@ -69,250 +65,219 @@ export default function Dashboard() {
     makeCallMutation.mutate({ phoneNumber, agentId: selectedAgent });
   };
 
-  const stats = {
-    totalCalls: calls?.length || 0,
-    activeCalls: calls?.filter(c => c.status === "in-progress").length || 0,
-    completedCalls: calls?.filter(c => c.status === "completed").length || 0,
-    avgDuration: calls && calls.length > 0
-      ? Math.round(calls.filter(c => c.duration).reduce((acc, c) => acc + (c.duration || 0), 0) / calls.filter(c => c.duration).length)
-      : 0,
+  const handleChatSubmit = () => {
+    if (!chatInput.trim()) return;
+    
+    // Navigate to chat page with the initial message using Wouter
+    setLocation(`/chat?message=${encodeURIComponent(chatInput)}`);
   };
 
-  const recentCalls = calls?.slice(0, 5) || [];
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "completed":
-        return "bg-green-500/10 text-green-700 dark:text-green-400";
-      case "in-progress":
-        return "bg-blue-500/10 text-blue-700 dark:text-blue-400";
-      case "failed":
-      case "no-answer":
-        return "bg-red-500/10 text-red-700 dark:text-red-400";
-      default:
-        return "bg-gray-500/10 text-gray-700 dark:text-gray-400";
-    }
-  };
+  // Sample community templates data
+  const communityTemplates = [
+    {
+      id: "1",
+      name: "Sales Call Agent",
+      description: "Outbound sales assistant",
+      badge: "Elevate",
+      type: "outbound",
+    },
+    {
+      id: "2",
+      name: "Customer Support",
+      description: "Inbound support handler",
+      badge: "Elevate",
+      type: "inbound",
+    },
+    {
+      id: "3",
+      name: "Appointment Scheduler",
+      description: "Schedule appointments automatically",
+      badge: "Template",
+      type: "inbound",
+    },
+    {
+      id: "4",
+      name: "Lead Qualifier",
+      description: "Qualify leads before transfer",
+      badge: "Elevate",
+      type: "outbound",
+    },
+  ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-semibold" data-testid="text-dashboard-title">Dashboard</h1>
-          <p className="text-muted-foreground mt-1">
-            Overview of your AI voice assistant performance
+    <div className="space-y-12 max-w-6xl mx-auto">
+      {/* Hero Section */}
+      <div className="space-y-8 pt-8">
+        <div className="space-y-3">
+          <h1 className="text-4xl md:text-5xl font-bold" data-testid="text-dashboard-title">
+            Hey, there 👋
+          </h1>
+          <p className="text-xl md:text-2xl text-muted-foreground">
+            Let's build your AI voice agent
           </p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button size="lg" data-testid="button-make-call">
-              <PhoneCall className="mr-2 h-4 w-4" />
-              Make Outbound Call
+
+        {/* Chat Input */}
+        <div className="relative">
+          <div className="relative flex items-center gap-2 p-2 rounded-xl border border-border bg-card hover-elevate">
+            <Input
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleChatSubmit()}
+              placeholder="Ask SoVoice to create an AI agent that runs complete debt-recovery calls, posts to a CRM..."
+              className="flex-1 border-0 bg-transparent text-base focus-visible:ring-0 focus-visible:ring-offset-0 px-4"
+              data-testid="input-chat-message"
+            />
+            <Button
+              size="icon"
+              onClick={handleChatSubmit}
+              disabled={!chatInput.trim()}
+              className="rounded-lg"
+              data-testid="button-send-chat"
+            >
+              <Send className="h-4 w-4" />
             </Button>
-          </DialogTrigger>
-          <DialogContent data-testid="dialog-make-call">
-            <DialogHeader>
-              <DialogTitle>Make Outbound Call</DialogTitle>
-              <DialogDescription>
-                Enter a phone number to initiate an AI-powered call
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="phone-number">Phone Number</Label>
-                <Input
-                  id="phone-number"
-                  data-testid="input-phone-number"
-                  placeholder="+1234567890"
-                  value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
-                  type="tel"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Include country code (e.g., +1 for US)
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="agent">AI Agent (Optional)</Label>
-                <Select value={selectedAgent} onValueChange={setSelectedAgent}>
-                  <SelectTrigger id="agent" data-testid="select-agent">
-                    <SelectValue placeholder="Use default agent" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {agents?.map((agent) => (
-                      <SelectItem key={agent.id} value={agent.id}>
-                        {agent.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <DialogFooter>
+          </div>
+        </div>
+
+        {/* Quick Start Buttons */}
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Not sure where to start? Try one of these:
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <Link href="/agents?type=inbound">
               <Button
                 variant="outline"
-                onClick={() => setOpen(false)}
-                data-testid="button-cancel-call"
+                size="lg"
+                className="gap-2"
+                data-testid="button-inbound-agent"
               >
-                Cancel
+                <PhoneIncoming className="h-5 w-5" />
+                Inbound Phone Agent
               </Button>
-              <Button
-                onClick={handleMakeCall}
-                disabled={makeCallMutation.isPending}
-                data-testid="button-confirm-call"
-              >
-                {makeCallMutation.isPending ? "Calling..." : "Make Call"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </div>
-
-      {/* Stats Grid */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Calls</CardTitle>
-            <Phone className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <Skeleton className="h-8 w-20" />
-            ) : (
-              <>
-                <div className="text-2xl font-bold" data-testid="text-total-calls">{stats.totalCalls}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  All time calls
-                </p>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Now</CardTitle>
-            <Activity className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <Skeleton className="h-8 w-20" />
-            ) : (
-              <>
-                <div className="text-2xl font-bold" data-testid="text-active-calls">{stats.activeCalls}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  In progress
-                </p>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Completed</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <Skeleton className="h-8 w-20" />
-            ) : (
-              <>
-                <div className="text-2xl font-bold" data-testid="text-completed-calls">{stats.completedCalls}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Successfully finished
-                </p>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Avg Duration</CardTitle>
-            <Clock className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <Skeleton className="h-8 w-20" />
-            ) : (
-              <>
-                <div className="text-2xl font-bold" data-testid="text-avg-duration">
-                  {Math.floor(stats.avgDuration / 60)}:{(stats.avgDuration % 60).toString().padStart(2, '0')}
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Minutes per call
-                </p>
-              </>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Recent Calls */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Recent Calls</CardTitle>
-          <Link href="/calls">
-            <Button variant="ghost" size="sm" data-testid="button-view-all-calls">
-              View All
-            </Button>
-          </Link>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="space-y-3">
-              {[...Array(5)].map((_, i) => (
-                <div key={i} className="flex items-center justify-between py-3">
-                  <Skeleton className="h-10 w-32" />
-                  <Skeleton className="h-6 w-20" />
-                </div>
-              ))}
-            </div>
-          ) : recentCalls.length === 0 ? (
-            <div className="text-center py-12">
-              <Phone className="h-12 w-12 text-muted-foreground mx-auto mb-3 opacity-50" />
-              <h3 className="text-lg font-medium mb-1">No calls yet</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                Start making calls with your AI assistant
-              </p>
-              <Link href="/agents">
-                <Button data-testid="button-configure-agent">Configure Agent</Button>
-              </Link>
-            </div>
-          ) : (
-            <div className="space-y-1">
-              {recentCalls.map((call) => (
-                <Link key={call.id} href={`/calls/${call.id}`}>
-                  <div className="flex items-center justify-between p-3 rounded-md hover-elevate active-elevate-2" data-testid={`call-item-${call.id}`}>
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-md bg-muted">
-                        <Phone className="h-5 w-5 text-muted-foreground" />
-                      </div>
-                      <div>
-                        <p className="font-mono text-sm font-medium">{call.phoneNumber}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {new Date(call.createdAt).toLocaleDateString()} at {new Date(call.createdAt).toLocaleTimeString()}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      {call.duration && (
-                        <span className="text-sm text-muted-foreground">
-                          {Math.floor(call.duration / 60)}:{(call.duration % 60).toString().padStart(2, '0')}
-                        </span>
-                      )}
-                      <Badge variant="secondary" className={getStatusColor(call.status)}>
-                        {call.status}
-                      </Badge>
-                    </div>
+            </Link>
+            <Dialog open={outboundDialogOpen} onOpenChange={setOutboundDialogOpen}>
+              <DialogTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="gap-2"
+                  data-testid="button-outbound-agent"
+                >
+                  <PhoneOutgoing className="h-5 w-5" />
+                  Outbound Phone Agent
+                </Button>
+              </DialogTrigger>
+              <DialogContent data-testid="dialog-make-call">
+                <DialogHeader>
+                  <DialogTitle>Make Outbound Call</DialogTitle>
+                  <DialogDescription>
+                    Enter a phone number to initiate an AI-powered call
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="phone-number">Phone Number</Label>
+                    <Input
+                      id="phone-number"
+                      data-testid="input-phone-number"
+                      placeholder="+1234567890"
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value)}
+                      type="tel"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Include country code (e.g., +1 for US)
+                    </p>
                   </div>
-                </Link>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                  <div className="space-y-2">
+                    <Label htmlFor="agent">AI Agent (Optional)</Label>
+                    <Select value={selectedAgent} onValueChange={setSelectedAgent}>
+                      <SelectTrigger id="agent" data-testid="select-agent">
+                        <SelectValue placeholder="Use default agent" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {agents?.map((agent) => (
+                          <SelectItem key={agent.id} value={agent.id}>
+                            {agent.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => setOutboundDialogOpen(false)}
+                    data-testid="button-cancel-call"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleMakeCall}
+                    disabled={makeCallMutation.isPending}
+                    data-testid="button-confirm-call"
+                  >
+                    {makeCallMutation.isPending ? "Calling..." : "Make Call"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
+        </div>
+      </div>
+
+      {/* Community Templates Section */}
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-2xl font-semibold">From the Community</h2>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" className="text-xs">
+              Sort by
+            </Button>
+            <Button variant="ghost" size="sm" className="text-xs">
+              Inbound
+            </Button>
+            <Button variant="ghost" size="sm" className="text-xs">
+              Outbound
+            </Button>
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {communityTemplates.map((template) => (
+            <Card
+              key={template.id}
+              className="p-6 space-y-4 hover-elevate active-elevate-2 cursor-pointer"
+              data-testid={`template-card-${template.id}`}
+            >
+              <div className="space-y-3">
+                <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-muted">
+                  <User className="h-6 w-6 text-muted-foreground" />
+                </div>
+                <Badge
+                  variant={template.badge === "Elevate" ? "default" : "secondary"}
+                  className={template.badge === "Elevate" ? "bg-primary" : "bg-orange-500"}
+                >
+                  {template.badge}
+                </Badge>
+                <div>
+                  <h3 className="font-semibold text-base">{template.name}</h3>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {template.description}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                <span>♡ 0</span>
+                <span>👁 1</span>
+              </div>
+            </Card>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

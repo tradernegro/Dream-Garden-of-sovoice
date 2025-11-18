@@ -10,6 +10,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { useWebSocket } from "@/hooks/use-websocket";
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/dashboard";
+import Chat from "@/pages/chat";
 import CallHistory from "@/pages/call-history";
 import CallDetail from "@/pages/call-detail";
 import Agents from "@/pages/agents";
@@ -20,6 +21,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Dashboard} />
+      <Route path="/chat" component={Chat} />
       <Route path="/calls" component={CallHistory} />
       <Route path="/calls/:id" component={CallDetail} />
       <Route path="/agents" component={Agents} />
@@ -62,7 +64,7 @@ function AppContent() {
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider defaultTheme="light">
+      <ThemeProvider defaultTheme="dark">
         <TooltipProvider>
           <AppContent />
           <Toaster />
