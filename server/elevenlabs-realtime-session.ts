@@ -103,6 +103,12 @@ export class ElevenLabsRealtimeSession {
         break;
 
       case "media":
+        // CRITICAL: Ignore incoming audio while AI is speaking (prevents echo/self-listening)
+        if (this.isProcessing) {
+          // AI is currently speaking - discard incoming audio to prevent feedback loop
+          return;
+        }
+
         // Buffer incoming audio (μ-law format from Twilio)
         const audioPayload = message.media.payload;
         const ulawBuffer = Buffer.from(audioPayload, "base64");
@@ -116,7 +122,7 @@ export class ElevenLabsRealtimeSession {
           // Speech detected
           if (!this.isSpeaking) {
             this.isSpeaking = true;
-            console.log(`[ElevenLabs Session ${this.callId}] 🗣️ Speech started (energy: ${energy.toFixed(1)})`);
+            console.log(`[ElevenLabs Session ${this.callId}] 🗣️ User speech started (energy: ${energy.toFixed(1)})`);
           }
           this.lastSpeechTime = now;
           
@@ -140,7 +146,7 @@ export class ElevenLabsRealtimeSession {
 
         // Log every 100 chunks to reduce noise
         if (this.audioBuffer.length % 100 === 0) {
-          console.log(`[ElevenLabs Session ${this.callId}] 🎤 Buffering... ${this.audioBuffer.length} chunks (${(this.audioBuffer.length * 160 / 8000).toFixed(1)}s) | Energy: ${energy.toFixed(1)} | Speaking: ${this.isSpeaking}`);
+          console.log(`[ElevenLabs Session ${this.callId}] 🎤 Buffering... ${this.audioBuffer.length} chunks (${(this.audioBuffer.length * 160 / 8000).toFixed(1)}s) | Energy: ${energy.toFixed(1)} | User speaking: ${this.isSpeaking}`);
         }
         break;
 
