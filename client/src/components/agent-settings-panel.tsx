@@ -8,27 +8,20 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Save, Bot } from "lucide-react";
+import { Save, Bot, Volume2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import type { Agent } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
-const VOICES = [
-  { value: "alloy", label: "Alloy (Legacy)" },
-  { value: "echo", label: "Echo (Legacy)" },
-  { value: "shimmer", label: "Shimmer (Legacy)" },
-  { value: "fable", label: "Fable (Legacy)" },
-  { value: "onyx", label: "Onyx (Legacy)" },
-  { value: "nova", label: "Nova (Legacy)" },
-  { value: "ash", label: "Ash (Expressive)" },
-  { value: "ballad", label: "Ballad (Expressive)" },
-  { value: "coral", label: "Coral (Expressive)" },
-  { value: "sage", label: "Sage (Expressive)" },
-  { value: "verse", label: "Verse (Expressive)" },
-  { value: "cedar", label: "Cedar (Realtime)" },
-  { value: "marin", label: "Marin (Realtime)" },
-];
+interface Voice {
+  id: string;
+  name: string;
+  provider: string;
+  category: string;
+  description: string;
+  previewUrl?: string;
+}
 
 interface AgentSettingsPanelProps {
   agentId: string;
@@ -43,10 +36,15 @@ export function AgentSettingsPanel({ agentId }: AgentSettingsPanelProps) {
     enabled: !!agentId,
   });
 
+  const { data: allVoices = [] } = useQuery<Voice[]>({
+    queryKey: ["/api/voices"],
+  });
+
   const [formData, setFormData] = useState({
     name: "",
     description: "",
     prompt: "",
+    voiceProvider: "openai",
     voice: "alloy",
     temperature: 10,
     language: "en",
@@ -59,6 +57,7 @@ export function AgentSettingsPanel({ agentId }: AgentSettingsPanelProps) {
         name: agent.name ?? "",
         description: agent.description ?? "",
         prompt: agent.prompt ?? "",
+        voiceProvider: agent.voiceProvider ?? "openai",
         voice: agent.voice ?? "alloy",
         temperature: agent.temperature ?? 10, // Already stored as 0-20 (x10 scale)
         language: agent.language ?? "en",
@@ -181,6 +180,28 @@ export function AgentSettingsPanel({ agentId }: AgentSettingsPanelProps) {
           </p>
         </div>
 
+        {/* Voice Provider */}
+        <div className="space-y-2">
+          <Label htmlFor="agent-voice-provider">Voice Provider</Label>
+          <Select
+            value={formData.voiceProvider}
+            onValueChange={(value) => {
+              handleChange("voiceProvider", value);
+              // Reset to default voice when provider changes
+              const defaultVoice = value === "openai" ? "alloy" : allVoices.find(v => v.provider === "elevenlabs")?.id || "alloy";
+              handleChange("voice", defaultVoice);
+            }}
+          >
+            <SelectTrigger id="agent-voice-provider" data-testid="select-voice-provider">
+              <SelectValue placeholder="Select provider" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="openai">OpenAI (13 voices)</SelectItem>
+              <SelectItem value="elevenlabs">ElevenLabs ({allVoices.filter(v => v.provider === "elevenlabs").length} voices)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
         {/* Voice */}
         <div className="space-y-2">
           <Label htmlFor="agent-voice">Voice</Label>
@@ -192,15 +213,42 @@ export function AgentSettingsPanel({ agentId }: AgentSettingsPanelProps) {
               <SelectValue placeholder="Select voice" />
             </SelectTrigger>
             <SelectContent>
-              {VOICES.map((voice) => (
-                <SelectItem key={voice.value} value={voice.value}>
-                  {voice.label}
-                </SelectItem>
-              ))}
+              {allVoices
+                .filter(voice => voice.provider === formData.voiceProvider)
+                .map((voice) => (
+                  <SelectItem key={voice.id} value={voice.id}>
+                    <div className="flex items-center gap-2">
+                      {voice.name}
+                      <span className="text-xs text-muted-foreground">({voice.category})</span>
+                    </div>
+                  </SelectItem>
+                ))}
             </SelectContent>
           </Select>
+          {formData.voiceProvider === "elevenlabs" && allVoices.find(v => v.id === formData.voice)?.previewUrl && (
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const voice = allVoices.find(v => v.id === formData.voice);
+                  if (voice?.previewUrl) {
+                    const audio = new Audio(voice.previewUrl);
+                    audio.play();
+                  }
+                }}
+                data-testid="button-preview-voice"
+              >
+                <Volume2 className="h-4 w-4 mr-1" />
+                Preview Voice
+              </Button>
+            </div>
+          )}
           <p className="text-xs text-muted-foreground">
-            Cedar & Marin are the newest and most natural-sounding voices
+            {formData.voiceProvider === "openai" 
+              ? "Cedar & Marin are the newest OpenAI voices"
+              : "ElevenLabs provides high-quality AI voices"}
           </p>
         </div>
 

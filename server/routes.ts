@@ -18,6 +18,7 @@ import { getTwilioClient, getTwilioFromPhoneNumber } from "./twilio-client";
 import { transcribeAudio } from "./openai-client";
 import { sendChatMessage } from "./claude-client";
 import { OpenAIRealtimeSession } from "./openai-realtime-session";
+import { getElevenLabsVoices } from "./elevenlabs-client";
 import { z } from "zod";
 
 // WebSocket clients for real-time updates
@@ -205,6 +206,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Agent not found" });
       }
       res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // ==================== VOICE PROVIDER ROUTES ====================
+
+  // Get available voices from all providers
+  app.get("/api/voices", async (req: Request, res: Response) => {
+    try {
+      const provider = req.query.provider as string | undefined;
+
+      // OpenAI voices (13 available)
+      const openaiVoices = [
+        { id: "alloy", name: "Alloy", provider: "openai", category: "neutral", description: "Neutral, balanced voice" },
+        { id: "echo", name: "Echo", provider: "openai", category: "warm", description: "Warm, friendly voice" },
+        { id: "fable", name: "Fable", provider: "openai", category: "expressive", description: "Expressive, engaging voice" },
+        { id: "onyx", name: "Onyx", provider: "openai", category: "deep", description: "Deep, authoritative voice" },
+        { id: "nova", name: "Nova", provider: "openai", category: "energetic", description: "Energetic, enthusiastic voice" },
+        { id: "shimmer", name: "Shimmer", provider: "openai", category: "soft", description: "Soft, gentle voice" },
+        { id: "ash", name: "Ash", provider: "openai", category: "conversational", description: "Conversational, natural voice" },
+        { id: "ballad", name: "Ballad", provider: "openai", category: "smooth", description: "Smooth, pleasant voice" },
+        { id: "coral", name: "Coral", provider: "openai", category: "bright", description: "Bright, cheerful voice" },
+        { id: "sage", name: "Sage", provider: "openai", category: "wise", description: "Wise, calm voice" },
+        { id: "verse", name: "Verse", provider: "openai", category: "storytelling", description: "Storytelling, narrative voice" },
+        { id: "cedar", name: "Cedar", provider: "openai", category: "grounded", description: "Grounded, stable voice" },
+        { id: "marin", name: "Marin", provider: "openai", category: "professional", description: "Confident, professional voice" },
+      ];
+
+      // If only OpenAI requested, return early
+      if (provider === "openai") {
+        return res.json(openaiVoices);
+      }
+
+      // Get ElevenLabs voices
+      let elevenLabsVoices: any[] = [];
+      if (!provider || provider === "elevenlabs") {
+        try {
+          const voices = await getElevenLabsVoices();
+          elevenLabsVoices = voices.map(voice => ({
+            id: voice.voiceId,
+            name: voice.name,
+            provider: "elevenlabs",
+            category: voice.category,
+            description: voice.description || `${voice.name} voice from ElevenLabs`,
+            previewUrl: voice.previewUrl,
+          }));
+        } catch (error) {
+          console.error("[API] Failed to fetch ElevenLabs voices:", error);
+          // Don't fail the entire request if ElevenLabs is down
+          if (provider === "elevenlabs") {
+            throw error;
+          }
+        }
+      }
+
+      // Combine both providers
+      const allVoices = provider === "elevenlabs" ? elevenLabsVoices : [...openaiVoices, ...elevenLabsVoices];
+      res.json(allVoices);
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
