@@ -400,7 +400,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       wsClients.delete(ws);
     });
 
-    ws.send(JSON.stringify({ event: 'connected', data: { message: 'Connected to Pearl AI' } }));
+    ws.send(JSON.stringify({ event: 'connected', data: { message: 'Connected to SoVoice AI' } }));
   });
 
   // Twilio Media Stream WebSocket handler

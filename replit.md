@@ -1,8 +1,8 @@
-# Pearl AI - Voice Call Assistant Platform
+# SoVoice AI - Voice Call Assistant Platform
 
 ## Overview
 
-Pearl AI is an AI-powered voice call assistant platform designed to automate customer phone interactions. The application provides real-time conversation management, call analytics, and agent configuration capabilities. Built as a full-stack SaaS platform, it enables businesses to handle inbound and outbound calls using AI agents with customizable behavior and voice characteristics.
+SoVoice AI is an AI-powered voice call assistant platform designed to automate customer phone interactions. The application provides real-time conversation management, call analytics, and agent configuration capabilities. Built as a full-stack SaaS platform, it enables businesses to handle inbound and outbound calls using AI agents with customizable behavior and voice characteristics.
 
 ## User Preferences
 

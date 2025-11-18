@@ -52,7 +52,7 @@ export function AppSidebar() {
             <Phone className="h-5 w-5 text-primary-foreground" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold">Pearl AI</h1>
+            <h1 className="text-lg font-semibold">SoVoice AI</h1>
             <p className="text-xs text-muted-foreground">Voice Assistant</p>
           </div>
         </div>
