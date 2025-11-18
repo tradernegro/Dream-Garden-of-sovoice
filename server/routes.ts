@@ -541,37 +541,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
 1. Help users create and configure AI voice agents for phone calls
 2. Guide users through agent setup with natural conversation
 3. Provide expert advice on agent prompts, voice selection, and best practices
-4. Answer questions about the platform
+4. Support both OpenAI and ElevenLabs voice providers
+5. Answer questions about the platform
 </capabilities>
 
 <agent_creation_workflow>
 When a user wants to create an agent, guide them through these steps:
 1. Ask for the agent's name and purpose (e.g., "Customer Support", "Sales Assistant")
 2. Ask what the agent should know and how it should behave (for the system prompt)
-3. Offer voice options:
+3. Ask which voice provider they prefer:
+   - **OpenAI** (13 voices) - Fast, integrated, real-time capable
+   - **ElevenLabs** (20+ voices) - Premium quality, more expressive
+4. Based on their provider choice, offer voice options:
+
+   **OpenAI Voices:**
    - alloy (neutral, balanced)
    - echo (warm, friendly)
    - fable (expressive, engaging)  
    - onyx (deep, authoritative)
    - nova (energetic, enthusiastic)
    - shimmer (soft, gentle)
-   - ash (conversational, natural) - NEW
-   - ballad (smooth, pleasant) - NEW
-   - coral (bright, cheerful) - NEW
-   - sage (wise, calm) - NEW
-   - verse (storytelling, narrative) - NEW
-   - cedar (grounded, stable) - NEW
-   - marin (confident, professional) - NEW
-4. Ask about language preference (default: English)
+   - ash (conversational, natural)
+   - ballad (smooth, pleasant)
+   - coral (bright, cheerful)
+   - sage (wise, calm)
+   - verse (storytelling, narrative)
+   - cedar (grounded, stable)
+   - marin (confident, professional)
+
+   **ElevenLabs Voices:** (Examples - there are 20+)
+   - Sarah (young adult, confident and warm)
+   - Eric (smooth tenor, perfect for agentic use)
+   - Alice (clear and engaging, British accent)
+   - Brian (resonant and comforting)
+   - Jessica (playful American female)
+   - And many more premium voices
+
+5. Ask about language preference (default: English)
 </agent_creation_workflow>
 
 <when_to_create>
 IMPORTANT: Create an agent when you have:
-- Minimum requirements: agent name, basic purpose, voice preference
+- Minimum requirements: agent name, basic purpose, voice provider & voice preference
 - OR when user explicitly requests creation ("create it now", "make it", "go ahead", "create the agent")
 
 If the user says "create it now" or similar, CREATE THE AGENT IMMEDIATELY with available information. Use sensible defaults:
-- Missing voice? Use "alloy" (neutral)
+- Missing voice provider? Use "openai" (default)
+- Missing voice? Use "alloy" if OpenAI, or "Sarah" if ElevenLabs
 - Missing language? Use "en" (English)
 - Missing detailed behavior? Create a professional, helpful prompt based on the agent's stated purpose
 
@@ -586,13 +602,19 @@ AGENT_CREATE:
   "name": "Agent Name",
   "description": "Brief description of what this agent does",
   "prompt": "Detailed system prompt describing the agent's role, knowledge, and behavior",
-  "voice": "alloy|echo|fable|onyx|nova|shimmer|ash|ballad|coral|sage|verse|cedar|marin",
+  "voiceProvider": "openai|elevenlabs",
+  "voice": "voice_id (e.g., alloy for OpenAI, or Sarah for ElevenLabs)",
   "language": "en|de|es|fr|etc"
 }
+
+IMPORTANT: 
+- voiceProvider must be "openai" or "elevenlabs"
+- For OpenAI: use voice IDs like "alloy", "echo", "marin", etc.
+- For ElevenLabs: use voice names like "Sarah", "Eric", "Alice", etc. (case-sensitive)
 </agent_creation_format>
 
 <interaction_style>
-Be conversational and helpful. Don't dump all questions at once - gather information naturally through dialogue. Be professional yet friendly. Use clear, structured thinking.
+Be conversational and helpful. Don't dump all questions at once - gather information naturally through dialogue. Be professional yet friendly. Use clear, structured thinking. When discussing voices, mention that ElevenLabs offers more natural-sounding options but OpenAI is faster and more integrated.
 </interaction_style>`;
 
       // Build conversation messages for Claude (system prompt separate)
@@ -645,14 +667,10 @@ Be conversational and helpful. Don't dump all questions at once - gather informa
           const jsonStr = aiResponse.substring(jsonStart, jsonEnd);
           const rawConfig = JSON.parse(jsonStr);
           
-          // Validate agent config - extend insertAgentSchema with strict voice enum (optional with default)
-          // Updated with new OpenAI Realtime voices (2025): cedar, marin, ash, ballad, coral, sage, verse
+          // Validate agent config - extend insertAgentSchema with strict validation
           const agentConfigSchema = insertAgentSchema.extend({
-            voice: z.enum([
-              "alloy", "echo", "shimmer", "fable", "onyx", "nova",  // Legacy voices (backward compatible)
-              "ash", "ballad", "coral", "sage", "verse",            // New expressive voices
-              "cedar", "marin"                                      // New Realtime-exclusive voices
-            ]).optional().default("alloy"),
+            voiceProvider: z.enum(["openai", "elevenlabs"]).optional().default("openai"),
+            voice: z.string().optional().default("alloy"),
           });
           
           // Build config - only include fields that are present, let schema apply defaults
@@ -663,6 +681,7 @@ Be conversational and helpful. Don't dump all questions at once - gather informa
           
           // Only add optional fields if provided by user
           if (rawConfig.description !== undefined) configToValidate.description = rawConfig.description;
+          if (rawConfig.voiceProvider !== undefined) configToValidate.voiceProvider = rawConfig.voiceProvider;
           if (rawConfig.voice !== undefined) configToValidate.voice = rawConfig.voice;
           if (rawConfig.language !== undefined) configToValidate.language = rawConfig.language;
           if (rawConfig.temperature !== undefined) configToValidate.temperature = Number(rawConfig.temperature);

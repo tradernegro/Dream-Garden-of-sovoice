@@ -2,7 +2,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Bot, Plus, Settings, Trash2 } from "lucide-react";
+import { Bot, Plus, Settings, Trash2, Volume2 } from "lucide-react";
 import type { Agent } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -18,6 +18,15 @@ import { useState } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
+
+interface Voice {
+  id: string;
+  name: string;
+  provider: string;
+  category: string;
+  description: string;
+  previewUrl?: string;
+}
 
 const agentFormSchema = insertAgentSchema.extend({
   name: z.string().min(1, "Name is required"),
@@ -35,12 +44,17 @@ export default function Agents() {
     queryKey: ["/api/agents"],
   });
 
+  const { data: allVoices = [] } = useQuery<Voice[]>({
+    queryKey: ["/api/voices"],
+  });
+
   const form = useForm<AgentFormValues>({
     resolver: zodResolver(agentFormSchema),
     defaultValues: {
       name: "",
       description: "",
       prompt: "",
+      voiceProvider: "openai",
       voice: "alloy",
       temperature: 10,
       isActive: 1,
@@ -126,6 +140,7 @@ export default function Agents() {
       name: agent.name,
       description: agent.description ?? "",
       prompt: agent.prompt,
+      voiceProvider: agent.voiceProvider ?? "openai",
       voice: agent.voice,
       temperature: agent.temperature ?? 10,
       isActive: agent.isActive,
@@ -216,58 +231,111 @@ export default function Agents() {
                   )}
                 />
 
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="voice"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Voice</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl>
-                            <SelectTrigger data-testid="select-agent-voice">
-                              <SelectValue placeholder="Select voice" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="alloy">Alloy</SelectItem>
-                            <SelectItem value="echo">Echo</SelectItem>
-                            <SelectItem value="fable">Fable</SelectItem>
-                            <SelectItem value="onyx">Onyx</SelectItem>
-                            <SelectItem value="nova">Nova</SelectItem>
-                            <SelectItem value="shimmer">Shimmer</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                <FormField
+                  control={form.control}
+                  name="voiceProvider"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Voice Provider</FormLabel>
+                      <Select 
+                        onValueChange={(value) => {
+                          field.onChange(value);
+                          // Reset to default voice when provider changes
+                          const defaultVoice = value === "openai" ? "alloy" : allVoices.find(v => v.provider === "elevenlabs")?.id || "alloy";
+                          form.setValue("voice", defaultVoice);
+                        }} 
+                        defaultValue={field.value}
+                      >
+                        <FormControl>
+                          <SelectTrigger data-testid="select-voice-provider">
+                            <SelectValue placeholder="Select provider" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="openai">OpenAI (13 voices)</SelectItem>
+                          <SelectItem value="elevenlabs">ElevenLabs ({allVoices.filter(v => v.provider === "elevenlabs").length} voices)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
-                  <FormField
-                    control={form.control}
-                    name="language"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Language</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl>
-                            <SelectTrigger data-testid="select-agent-language">
-                              <SelectValue placeholder="Select language" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="en">English</SelectItem>
-                            <SelectItem value="es">Spanish</SelectItem>
-                            <SelectItem value="fr">French</SelectItem>
-                            <SelectItem value="de">German</SelectItem>
-                            <SelectItem value="zh">Chinese</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
+                <FormField
+                  control={form.control}
+                  name="voice"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Voice</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-agent-voice">
+                            <SelectValue placeholder="Select voice" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {allVoices
+                            .filter(voice => voice.provider === form.watch("voiceProvider"))
+                            .map((voice) => (
+                              <SelectItem key={voice.id} value={voice.id}>
+                                {voice.name} ({voice.category})
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                      {form.watch("voiceProvider") === "elevenlabs" && allVoices.find(v => v.id === field.value)?.previewUrl && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="mt-2"
+                          onClick={() => {
+                            const voice = allVoices.find(v => v.id === field.value);
+                            if (voice?.previewUrl) {
+                              const audio = new Audio(voice.previewUrl);
+                              audio.play();
+                            }
+                          }}
+                          data-testid="button-preview-voice"
+                        >
+                          <Volume2 className="h-4 w-4 mr-1" />
+                          Preview Voice
+                        </Button>
+                      )}
+                      <FormDescription>
+                        {form.watch("voiceProvider") === "openai" 
+                          ? "Cedar & Marin are the newest OpenAI voices"
+                          : "ElevenLabs provides high-quality AI voices"}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="language"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Language</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value || "en"}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-agent-language">
+                            <SelectValue placeholder="Select language" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="en">English</SelectItem>
+                          <SelectItem value="es">Spanish</SelectItem>
+                          <SelectItem value="fr">French</SelectItem>
+                          <SelectItem value="de">German</SelectItem>
+                          <SelectItem value="zh">Chinese</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
                 <FormField
                   control={form.control}
