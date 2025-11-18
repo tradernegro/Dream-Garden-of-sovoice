@@ -21,15 +21,17 @@ export default function Chat() {
   const isCreatingSession = useRef(false);
   const { toast} = useToast();
 
-  // Get or create session from URL query
+  // Get or create session from URL query (runs on mount and location change only)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const urlSessionId = params.get("session");
     const initialMessage = params.get("message");
     
     if (urlSessionId && urlSessionId !== "undefined") {
-      // URL has a valid session ID - use it
-      setSessionId(urlSessionId);
+      // URL has a valid session ID - use it (only if different from current)
+      if (sessionId !== urlSessionId) {
+        setSessionId(urlSessionId);
+      }
     } else if (!urlSessionId && !isCreatingSession.current) {
       // No session in URL and not already creating - create new session
       isCreatingSession.current = true;
