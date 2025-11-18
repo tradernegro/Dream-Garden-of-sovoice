@@ -18,9 +18,10 @@ export async function sendChatMessage(
     console.log("[OpenAI] Sending chat completion request with", chatMessages.length, "messages");
 
     const response = await openai.chat.completions.create({
-      model: "gpt-5",
+      model: "gpt-4o-mini",
       messages: chatMessages,
-      max_completion_tokens: 2000,
+      max_tokens: 2000,
+      temperature: 0.7,
     });
 
     const content = response.choices[0].message.content;
