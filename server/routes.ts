@@ -1,4 +1,4 @@
-import type { Express, Request, Response } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
@@ -23,6 +23,7 @@ import { OpenAIRealtimeSession } from "./openai-realtime-session";
 import { ElevenLabsRealtimeSession } from "./elevenlabs-realtime-session";
 import { getElevenLabsVoices } from "./elevenlabs-client";
 import { z } from "zod";
+import cors from "cors";
 
 // WebSocket clients for real-time updates
 const wsClients = new Set<WebSocket>();
@@ -36,7 +37,61 @@ function broadcastToClients(event: string, data: any) {
   });
 }
 
+// API Key Authentication Middleware
+async function authenticateApiKey(req: Request, res: Response, next: NextFunction) {
+  try {
+    // Extract API key from Authorization header
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: "Missing or invalid Authorization header. Use: Authorization: Bearer sk_live_..." });
+    }
+    
+    const apiKey = authHeader.substring(7); // Remove "Bearer " prefix
+    
+    // Validate key format
+    if (!apiKey.startsWith('sk_live_')) {
+      return res.status(401).json({ error: "Invalid API key format. Key must start with 'sk_live_'" });
+    }
+    
+    // Hash the provided key
+    const keyHash = createHash('sha256').update(apiKey).digest('hex');
+    
+    // Look up the key in the database
+    const storedKey = await storage.getApiKeyByHash(keyHash);
+    
+    if (!storedKey) {
+      return res.status(401).json({ error: "Invalid API key" });
+    }
+    
+    // Check if key has expired
+    if (storedKey.expiresAt && new Date(storedKey.expiresAt) < new Date()) {
+      return res.status(401).json({ error: "API key has expired" });
+    }
+    
+    // Update last used timestamp (async, don't wait)
+    storage.updateApiKeyLastUsed(storedKey.id).catch(err => 
+      console.error("Failed to update API key last used:", err)
+    );
+    
+    // Store key info in request for potential use in handlers
+    (req as any).apiKey = storedKey;
+    
+    next();
+  } catch (error) {
+    console.error("API key authentication error:", error);
+    res.status(500).json({ error: "Authentication failed" });
+  }
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Enable CORS for external API access
+  // Note: For production, restrict origin to your specific domain(s)
+  app.use(cors({
+    origin: true, // Allow all origins for development (restrict in production)
+    credentials: false, // API uses Bearer tokens, not cookies
+  }));
+
   // ==================== CALL ROUTES ====================
   
   // Get all calls
@@ -63,8 +118,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Create call (initiate outbound call)
-  app.post("/api/calls", async (req: Request, res: Response) => {
+  // Create call (initiate outbound call) - Requires API key authentication
+  app.post("/api/calls", authenticateApiKey, async (req: Request, res: Response) => {
     try {
       const validatedData = insertCallSchema.parse(req.body);
       
