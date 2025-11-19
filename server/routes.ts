@@ -91,6 +91,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     'https://www.sovoice.ai',
     'http://localhost:5000',
     'http://localhost:3000',
+    'http://127.0.0.1:5000',
+    'http://127.0.0.1:3000',
   ];
 
   // In development, also allow Replit dev URLs
