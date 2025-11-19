@@ -49,9 +49,9 @@ async function authenticateApiKey(req: Request, res: Response, next: NextFunctio
     
     const apiKey = authHeader.substring(7); // Remove "Bearer " prefix
     
-    // Validate key format
-    if (!apiKey.startsWith('sk_live_')) {
-      return res.status(401).json({ error: "Invalid API key format. Key must start with 'sk_live_'" });
+    // Validate key is not empty
+    if (!apiKey || apiKey.trim().length === 0) {
+      return res.status(401).json({ error: "Invalid API key format. Key cannot be empty" });
     }
     
     // Hash the provided key
