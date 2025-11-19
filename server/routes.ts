@@ -203,13 +203,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(500).json({ error: "SOVOICE system agent not found" });
       }
 
+      // Extract additional fields (firstName, etc.) and store in metadata
+      const { phoneNumber, direction, metadata = {}, ...additionalFields } = req.body;
+      
+      // Merge additional fields into metadata
+      const enrichedMetadata = {
+        ...metadata,
+        ...additionalFields, // firstName, etc. automatically included
+      };
+
       // Create call record with SOVOICE agent
       const call = await storage.createCall({
-        phoneNumber: req.body.phoneNumber,
+        phoneNumber,
         direction: "outbound",
         status: "queued",
         agentId: sovoiceAgent.id,
-        metadata: req.body.metadata || {},
+        metadata: enrichedMetadata,
       });
 
       // Broadcast real-time update
