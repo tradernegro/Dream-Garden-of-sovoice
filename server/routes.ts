@@ -85,10 +85,35 @@ async function authenticateApiKey(req: Request, res: Response, next: NextFunctio
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Enable CORS for external API access
-  // Note: For production, restrict origin to your specific domain(s)
+  // CORS configuration - Only allow sovoice.ai domains
+  const allowedOrigins = [
+    'https://sovoice.ai',
+    'https://www.sovoice.ai',
+    'http://localhost:5000',
+    'http://localhost:3000',
+  ];
+
+  // In development, also allow Replit dev URLs
+  const isDevelopment = process.env.NODE_ENV === 'development';
+  
   app.use(cors({
-    origin: true, // Allow all origins for development (restrict in production)
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps or curl)
+      if (!origin) return callback(null, true);
+      
+      // In development, allow all Replit domains
+      if (isDevelopment && origin.includes('.replit.dev')) {
+        return callback(null, true);
+      }
+      
+      // Check if origin is in allowedOrigins
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      
+      // Block all other origins
+      callback(new Error(`Origin ${origin} not allowed by CORS`));
+    },
     credentials: false, // API uses Bearer tokens, not cookies
   }));
 
