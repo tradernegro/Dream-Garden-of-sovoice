@@ -118,8 +118,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Create call (initiate outbound call) - Requires API key authentication
-  app.post("/api/calls", authenticateApiKey, async (req: Request, res: Response) => {
+  // Create call (initiate outbound call) - Used by internal UI
+  app.post("/api/calls", async (req: Request, res: Response) => {
     try {
       const validatedData = insertCallSchema.parse(req.body);
       
