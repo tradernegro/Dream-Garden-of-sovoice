@@ -188,6 +188,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // SOVOICE Website Integration - Dedicated endpoint for company website
+  // Automatically uses the SOVOICE system agent for all calls
+  app.post("/api/sovoice/call", authenticateApiKey, async (req: Request, res: Response) => {
+    try {
+      // Validate phone number is provided
+      if (!req.body.phoneNumber) {
+        return res.status(400).json({ error: "Phone number is required" });
+      }
+
+      // Get the SOVOICE system agent
+      const sovoiceAgent = await storage.getSystemAgent("SOVOICE Assistant");
+      if (!sovoiceAgent) {
+        return res.status(500).json({ error: "SOVOICE system agent not found" });
+      }
+
+      // Create call record with SOVOICE agent
+      const call = await storage.createCall({
+        phoneNumber: req.body.phoneNumber,
+        direction: "outbound",
+        status: "queued",
+        agentId: sovoiceAgent.id,
+        metadata: req.body.metadata || {},
+      });
+
+      // Broadcast real-time update
+      broadcastToClients("call:created", call);
+
+      // Initiate Twilio call
+      try {
+        const twilioClient = await getTwilioClient();
+        const fromNumber = await getTwilioFromPhoneNumber();
+        
+        // Get base URL with protocol
+        const baseUrl = process.env.REPLIT_DOMAINS 
+          ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
+          : 'http://localhost:5000';
+        
+        const twilioCall = await twilioClient.calls.create({
+          to: call.phoneNumber,
+          from: fromNumber,
+          url: `${baseUrl}/api/twilio/voice?callId=${call.id}`,
+          statusCallback: `${baseUrl}/api/twilio/status`,
+          statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
+        });
+
+        // Update call with Twilio SID
+        await storage.updateCall(call.id, {
+          metadata: { twilioSid: twilioCall.sid } as any,
+          status: "in-progress",
+        });
+
+        res.json({ 
+          success: true, 
+          call: call,
+          message: "SOVOICE Assistant wird Sie in Kürze anrufen"
+        });
+      } catch (twilioError) {
+        console.error("Twilio error:", twilioError);
+        await storage.updateCall(call.id, { status: "failed" });
+        res.status(500).json({ 
+          error: "Failed to initiate call",
+          details: (twilioError as Error).message
+        });
+      }
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
   // Delete call
   app.delete("/api/calls/:id", async (req: Request, res: Response) => {
     try {
@@ -259,6 +328,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Delete agent
   app.delete("/api/agents/:id", async (req: Request, res: Response) => {
     try {
+      // Check if agent is a system agent (cannot be deleted)
+      const agent = await storage.getAgent(req.params.id);
+      if (!agent) {
+        return res.status(404).json({ error: "Agent not found" });
+      }
+      if (agent.isSystem === 1) {
+        return res.status(403).json({ error: "System agents cannot be deleted" });
+      }
+
       const deleted = await storage.deleteAgent(req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Agent not found" });

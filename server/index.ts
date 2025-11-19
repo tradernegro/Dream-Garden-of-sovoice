@@ -2,6 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { seedData } from "./seed-data";
+import { initializeSystemAgents } from "./init-system-agents";
 
 const app = express();
 
@@ -48,6 +49,31 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Initialize system agents in database (permanent agents that survive restarts)
+  await initializeSystemAgents();
+
+  // Load system agents from database into MemStorage
+  try {
+    const { db } = await import('./db');
+    const { agents } = await import('@shared/schema');
+    const { eq } = await import('drizzle-orm');
+    const { storage } = await import('./storage');
+    
+    const systemAgents = await db
+      .select()
+      .from(agents)
+      .where(eq(agents.isSystem, 1));
+    
+    for (const agent of systemAgents) {
+      await storage.loadAgentIntoMemory(agent);
+    }
+    
+    // Ensure at least one agent exists
+    await storage.ensureDefaultAgent();
+  } catch (error) {
+    console.error("[Init] Failed to load system agents into memory:", error);
+  }
+
   // Seed sample data for development (before registering routes)
   await seedData();
 

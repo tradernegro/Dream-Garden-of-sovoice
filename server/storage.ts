@@ -28,6 +28,7 @@ export interface IStorage {
   getAgents(): Promise<Agent[]>;
   getAgent(id: string): Promise<Agent | undefined>;
   getActiveAgent(): Promise<Agent | undefined>;
+  getSystemAgent(name: string): Promise<Agent | undefined>;
   createAgent(agent: InsertAgent): Promise<Agent>;
   updateAgent(id: string, agent: Partial<InsertAgent>): Promise<Agent | undefined>;
   deleteAgent(id: string): Promise<boolean>;
@@ -81,7 +82,20 @@ export class MemStorage implements IStorage {
     this.chatMessages = new Map();
     this.apiKeys = new Map();
     
-    // Create a default agent
+    // Default agent will be added if no system agent is loaded
+    // (see loadSystemAgentsFromDatabase in index.ts)
+  }
+
+  // Method to load an agent into memory (used by initialization)
+  async loadAgentIntoMemory(agent: Agent): Promise<void> {
+    this.agents.set(agent.id, agent);
+    console.log(`[MemStorage] Loaded ${agent.name} into memory`);
+  }
+
+  // Create default fallback agent if no system agents exist
+  async ensureDefaultAgent(): Promise<void> {
+    if (this.agents.size > 0) return;
+
     const defaultAgentId = randomUUID();
     this.agents.set(defaultAgentId, {
       id: defaultAgentId,
@@ -92,10 +106,12 @@ export class MemStorage implements IStorage {
       voice: "alloy",
       temperature: 10,
       isActive: 1,
+      isSystem: 0,
       language: "en",
       createdAt: new Date(),
       updatedAt: new Date(),
     });
+    console.log("[MemStorage] Created default fallback agent");
   }
 
   // User methods
@@ -188,9 +204,11 @@ export class MemStorage implements IStorage {
       name: insertAgent.name,
       description: insertAgent.description ?? null,
       prompt: insertAgent.prompt,
+      voiceProvider: insertAgent.voiceProvider ?? "openai",
       voice: insertAgent.voice ?? "alloy",
       temperature: insertAgent.temperature ?? null,
       isActive: insertAgent.isActive ?? 1,
+      isSystem: 0, // Regular agents are never system agents (only set via DB initialization)
       language: insertAgent.language ?? null,
       id,
       createdAt: new Date(),
@@ -214,12 +232,23 @@ export class MemStorage implements IStorage {
   }
 
   async deleteAgent(id: string): Promise<boolean> {
+    // Protect system agents from deletion (defense in depth)
+    const agent = this.agents.get(id);
+    if (agent?.isSystem === 1) {
+      throw new Error("System agents cannot be deleted");
+    }
     return this.agents.delete(id);
   }
 
   async getActiveAgent(): Promise<Agent | undefined> {
     return Array.from(this.agents.values()).find(
       (agent) => agent.isActive === 1
+    );
+  }
+
+  async getSystemAgent(name: string): Promise<Agent | undefined> {
+    return Array.from(this.agents.values()).find(
+      (agent) => agent.isSystem === 1 && agent.name === name
     );
   }
 

@@ -49,6 +49,7 @@ export const agents = pgTable("agents", {
   voice: text("voice").notNull().default("alloy"), // OpenAI voice name (alloy, echo, etc.) OR ElevenLabs voice ID
   temperature: integer("temperature").default(1), // 0-2, scaled by 10 (so 10 = 1.0)
   isActive: integer("is_active").notNull().default(1), // 1 = active, 0 = inactive (boolean)
+  isSystem: integer("is_system").notNull().default(0), // 1 = system agent (cannot be deleted), 0 = regular agent
   language: text("language").default("en"), // Language code
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -56,6 +57,7 @@ export const agents = pgTable("agents", {
 
 export const insertAgentSchema = createInsertSchema(agents).omit({
   id: true,
+  isSystem: true, // Only server can set system agents, not clients
   createdAt: true,
   updatedAt: true,
 });
