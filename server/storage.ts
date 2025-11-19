@@ -5,7 +5,8 @@ import {
   type User, type InsertUser,
   type Transcript, type InsertTranscript,
   type ChatMessage, type InsertChatMessage,
-  type ChatSession, type InsertChatSession
+  type ChatSession, type InsertChatSession,
+  type ApiKey, type InsertApiKey
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -50,6 +51,14 @@ export interface IStorage {
   getChatMessages(sessionId?: string, limit?: number): Promise<ChatMessage[]>;
   createChatMessage(message: InsertChatMessage): Promise<ChatMessage>;
   deleteChatMessages(sessionId: string): Promise<boolean>;
+  
+  // API Key methods
+  getApiKeys(): Promise<ApiKey[]>;
+  getApiKey(id: string): Promise<ApiKey | undefined>;
+  getApiKeyByHash(keyHash: string): Promise<ApiKey | undefined>;
+  createApiKey(apiKey: InsertApiKey): Promise<ApiKey>;
+  deleteApiKey(id: string): Promise<boolean>;
+  updateApiKeyLastUsed(id: string): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -60,6 +69,7 @@ export class MemStorage implements IStorage {
   private transcripts: Map<string, Transcript>;
   private chatSessions: Map<string, ChatSession>;
   private chatMessages: Map<string, ChatMessage>;
+  private apiKeys: Map<string, ApiKey>;
 
   constructor() {
     this.users = new Map();
@@ -69,6 +79,7 @@ export class MemStorage implements IStorage {
     this.transcripts = new Map();
     this.chatSessions = new Map();
     this.chatMessages = new Map();
+    this.apiKeys = new Map();
     
     // Create a default agent
     const defaultAgentId = randomUUID();
@@ -77,6 +88,7 @@ export class MemStorage implements IStorage {
       name: "Customer Support Agent",
       description: "Friendly AI assistant for customer support",
       prompt: "You are a helpful customer support assistant. Be friendly, professional, and assist customers with their inquiries.",
+      voiceProvider: "openai",
       voice: "alloy",
       temperature: 10,
       isActive: 1,
@@ -348,6 +360,50 @@ export class MemStorage implements IStorage {
     
     messagesToDelete.forEach((m) => this.chatMessages.delete(m.id));
     return messagesToDelete.length > 0;
+  }
+
+  // API Key methods
+  async getApiKeys(): Promise<ApiKey[]> {
+    return Array.from(this.apiKeys.values()).sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  }
+
+  async getApiKey(id: string): Promise<ApiKey | undefined> {
+    return this.apiKeys.get(id);
+  }
+
+  async getApiKeyByHash(keyHash: string): Promise<ApiKey | undefined> {
+    return Array.from(this.apiKeys.values()).find(
+      (key) => key.keyHash === keyHash
+    );
+  }
+
+  async createApiKey(insertApiKey: InsertApiKey): Promise<ApiKey> {
+    const id = randomUUID();
+    const apiKey: ApiKey = {
+      id,
+      name: insertApiKey.name,
+      keyHash: insertApiKey.keyHash,
+      keyPrefix: insertApiKey.keyPrefix,
+      lastUsedAt: null,
+      expiresAt: insertApiKey.expiresAt ?? null,
+      createdAt: new Date(),
+    };
+    this.apiKeys.set(id, apiKey);
+    return apiKey;
+  }
+
+  async deleteApiKey(id: string): Promise<boolean> {
+    return this.apiKeys.delete(id);
+  }
+
+  async updateApiKeyLastUsed(id: string): Promise<void> {
+    const apiKey = this.apiKeys.get(id);
+    if (apiKey) {
+      apiKey.lastUsedAt = new Date();
+      this.apiKeys.set(id, apiKey);
+    }
   }
 }
 
