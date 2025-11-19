@@ -18,6 +18,11 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ extended: false }));
 
+// Health check endpoint - responds immediately for deployment health checks
+app.get("/health", (_req, res) => {
+  res.status(200).json({ status: "ok" });
+});
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -49,42 +54,6 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  // Initialize system agents in database (permanent agents that survive restarts)
-  await initializeSystemAgents();
-
-  // Load system agents from database into MemStorage
-  try {
-    const { db } = await import('./db');
-    const { agents } = await import('@shared/schema');
-    const { eq } = await import('drizzle-orm');
-    const { storage } = await import('./storage');
-    
-    const systemAgents = await db
-      .select()
-      .from(agents)
-      .where(eq(agents.isSystem, 1));
-    
-    for (const agent of systemAgents) {
-      await storage.loadAgentIntoMemory(agent);
-    }
-    
-    // Ensure at least one agent exists
-    await storage.ensureDefaultAgent();
-  } catch (error) {
-    console.error("[Init] Failed to load system agents into memory:", error);
-  }
-
-  // Load API keys from database into MemStorage (for persistence across restarts)
-  try {
-    const { storage } = await import('./storage');
-    await storage.loadApiKeysFromDatabase();
-  } catch (error) {
-    console.error("[Init] Failed to load API keys into memory:", error);
-  }
-
-  // Seed sample data for development (before registering routes)
-  await seedData();
-
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -115,5 +84,44 @@ app.use((req, res, next) => {
     reusePort: true,
   }, () => {
     log(`serving on port ${port}`);
+    
+    // Initialize expensive operations AFTER server starts listening
+    // This ensures health checks pass immediately during deployment
+    (async () => {
+      try {
+        // Initialize system agents in database (permanent agents that survive restarts)
+        await initializeSystemAgents();
+
+        // Load system agents from database into MemStorage
+        const { db } = await import('./db');
+        const { agents } = await import('@shared/schema');
+        const { eq } = await import('drizzle-orm');
+        const { storage } = await import('./storage');
+        
+        const systemAgents = await db
+          .select()
+          .from(agents)
+          .where(eq(agents.isSystem, 1));
+        
+        for (const agent of systemAgents) {
+          await storage.loadAgentIntoMemory(agent);
+        }
+        
+        // Ensure at least one agent exists
+        await storage.ensureDefaultAgent();
+
+        // Load API keys from database into MemStorage (for persistence across restarts)
+        await storage.loadApiKeysFromDatabase();
+
+        // Seed sample data ONLY in development (skip in production)
+        if (app.get("env") === "development") {
+          await seedData();
+        }
+        
+        log("[Init] Background initialization complete");
+      } catch (error) {
+        console.error("[Init] Background initialization failed:", error);
+      }
+    })();
   });
 })();
