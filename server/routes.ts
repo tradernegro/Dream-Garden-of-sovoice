@@ -10,10 +10,12 @@ import {
   insertChatMessageSchema, 
   insertChatSessionSchema,
   updateChatSessionSchema,
+  insertApiKeySchema,
   type Call, 
   type Agent,
   type ChatSession 
 } from "@shared/schema";
+import { randomBytes, createHash } from "crypto";
 import { getTwilioClient, getTwilioFromPhoneNumber } from "./twilio-client";
 import { transcribeAudio } from "./openai-client";
 import { sendChatMessage } from "./openai-client";
@@ -425,6 +427,71 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(setting);
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  // ==================== API KEY ROUTES ====================
+  
+  // Get all API keys (returns only metadata, NOT the actual keys)
+  app.get("/api/keys", async (req: Request, res: Response) => {
+    try {
+      const apiKeys = await storage.getApiKeys();
+      // Return keys without the hash (security: never expose even hashed keys to frontend)
+      const safeKeys = apiKeys.map(({ keyHash, ...key }) => key);
+      res.json(safeKeys);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Create new API key
+  app.post("/api/keys", async (req: Request, res: Response) => {
+    try {
+      const validated = insertApiKeySchema.extend({
+        name: z.string().min(1, "Key name is required"),
+      }).omit({ keyHash: true, keyPrefix: true }).parse(req.body);
+      
+      // Generate secure random API key (32 bytes = 64 hex chars)
+      const rawKey = randomBytes(32).toString('hex');
+      
+      // Create key with prefix for display (e.g., "sk_live_abc123...")
+      const fullKey = `sk_live_${rawKey}`;
+      
+      // Hash the key with SHA-256 for secure storage
+      const keyHash = createHash('sha256').update(fullKey).digest('hex');
+      
+      // Extract prefix for display (first 15 chars: "sk_live_" + first 7 chars)
+      const keyPrefix = fullKey.substring(0, 15) + '...';
+      
+      // Save API key with hash (never store the raw key!)
+      const apiKey = await storage.createApiKey({
+        name: validated.name,
+        keyHash,
+        keyPrefix,
+        expiresAt: validated.expiresAt,
+      });
+      
+      // SECURITY: Return the full key ONLY once during creation
+      // Client must save this - it will NEVER be shown again!
+      res.json({
+        ...apiKey,
+        key: fullKey, // Only returned on creation
+      });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  // Delete API key
+  app.delete("/api/keys/:id", async (req: Request, res: Response) => {
+    try {
+      const deleted = await storage.deleteApiKey(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "API key not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
     }
   });
 
