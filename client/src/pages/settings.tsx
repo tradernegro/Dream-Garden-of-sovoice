@@ -1,12 +1,115 @@
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Phone, Key, Database, Webhook } from "lucide-react";
+import { Phone, Key, Database, Webhook, Plus, Trash2, Copy, Eye, EyeOff, AlertCircle } from "lucide-react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+
+interface ApiKey {
+  id: string;
+  name: string;
+  keyPrefix: string;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  createdAt: string;
+  key?: string; // Only returned on creation
+}
 
 export default function Settings() {
+  const { toast } = useToast();
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [newKeyName, setNewKeyName] = useState("");
+  const [generatedKey, setGeneratedKey] = useState<string | null>(null);
+  const [showKey, setShowKey] = useState(false);
+
+  // Fetch API keys
+  const { data: apiKeys = [], isLoading } = useQuery<ApiKey[]>({
+    queryKey: ["/api/keys"],
+  });
+
+  // Create API key
+  const createKeyMutation = useMutation({
+    mutationFn: async (name: string) => {
+      const response = await apiRequest("/api/keys", {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      });
+      return response;
+    },
+    onSuccess: (data: ApiKey) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/keys"] });
+      setGeneratedKey(data.key!); // Store the generated key to show once
+      setShowKey(true);
+      setNewKeyName("");
+      toast({
+        title: "API Key Created",
+        description: "Save this key securely - it will only be shown once!",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Delete API key
+  const deleteKeyMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest(`/api/keys/${id}`, { method: "DELETE" });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/keys"] });
+      toast({
+        title: "API Key Deleted",
+        description: "The API key has been permanently deleted.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleCreateKey = () => {
+    if (!newKeyName.trim()) {
+      toast({
+        title: "Error",
+        description: "Please enter a key name",
+        variant: "destructive",
+      });
+      return;
+    }
+    createKeyMutation.mutate(newKeyName);
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast({
+      title: "Copied!",
+      description: "API key copied to clipboard",
+    });
+  };
+
+  const closeCreateDialog = () => {
+    setIsCreateDialogOpen(false);
+    setGeneratedKey(null);
+    setShowKey(false);
+    setNewKeyName("");
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -151,6 +254,147 @@ export default function Settings() {
                 </p>
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* API Keys */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10">
+                  <Key className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <CardTitle>API Keys</CardTitle>
+                  <CardDescription>Manage API keys for external integrations</CardDescription>
+                </div>
+              </div>
+              <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button size="sm" data-testid="button-create-api-key">
+                    <Plus className="h-4 w-4 mr-2" />
+                    Create Key
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Create API Key</DialogTitle>
+                    <DialogDescription>
+                      {generatedKey ? "Your new API key has been generated" : "Create a new API key for external integrations"}
+                    </DialogDescription>
+                  </DialogHeader>
+                  
+                  {generatedKey ? (
+                    <div className="space-y-4">
+                      <Alert>
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertDescription>
+                          Save this key securely! It will only be shown once and cannot be recovered.
+                        </AlertDescription>
+                      </Alert>
+                      
+                      <div className="space-y-2">
+                        <Label>Your API Key</Label>
+                        <div className="flex gap-2">
+                          <Input
+                            value={showKey ? generatedKey : "•".repeat(50)}
+                            readOnly
+                            className="font-mono text-sm"
+                            data-testid="input-generated-key"
+                          />
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => setShowKey(!showKey)}
+                            data-testid="button-toggle-key-visibility"
+                          >
+                            {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => copyToClipboard(generatedKey)}
+                            data-testid="button-copy-key"
+                          >
+                            <Copy className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="key-name">Key Name</Label>
+                        <Input
+                          id="key-name"
+                          placeholder="Production API Key"
+                          value={newKeyName}
+                          onChange={(e) => setNewKeyName(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && handleCreateKey()}
+                          data-testid="input-key-name"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Give your key a descriptive name
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  
+                  <DialogFooter>
+                    {generatedKey ? (
+                      <Button onClick={closeCreateDialog} data-testid="button-done-key">
+                        Done
+                      </Button>
+                    ) : (
+                      <>
+                        <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
+                          Cancel
+                        </Button>
+                        <Button onClick={handleCreateKey} disabled={createKeyMutation.isPending} data-testid="button-generate-key">
+                          {createKeyMutation.isPending ? "Generating..." : "Generate Key"}
+                        </Button>
+                      </>
+                    )}
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <p className="text-sm text-muted-foreground">Loading API keys...</p>
+            ) : apiKeys.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No API keys created yet</p>
+            ) : (
+              <div className="space-y-3">
+                {apiKeys.map((key) => (
+                  <div
+                    key={key.id}
+                    className="flex items-center justify-between p-3 border rounded-md"
+                    data-testid={`api-key-${key.id}`}
+                  >
+                    <div className="flex-1 space-y-1">
+                      <p className="font-medium text-sm">{key.name}</p>
+                      <p className="text-xs font-mono text-muted-foreground">{key.keyPrefix}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Created {new Date(key.createdAt).toLocaleDateString()}
+                        {key.lastUsedAt && ` • Last used ${new Date(key.lastUsedAt).toLocaleDateString()}`}
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => deleteKeyMutation.mutate(key.id)}
+                      disabled={deleteKeyMutation.isPending}
+                      data-testid={`button-delete-key-${key.id}`}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
