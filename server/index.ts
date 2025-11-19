@@ -74,6 +74,14 @@ app.use((req, res, next) => {
     console.error("[Init] Failed to load system agents into memory:", error);
   }
 
+  // Load API keys from database into MemStorage (for persistence across restarts)
+  try {
+    const { storage } = await import('./storage');
+    await storage.loadApiKeysFromDatabase();
+  } catch (error) {
+    console.error("[Init] Failed to load API keys into memory:", error);
+  }
+
   // Seed sample data for development (before registering routes)
   await seedData();
 

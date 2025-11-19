@@ -419,12 +419,42 @@ export class MemStorage implements IStorage {
       expiresAt: insertApiKey.expiresAt ?? null,
       createdAt: new Date(),
     };
+    
+    // Store in memory for fast access
     this.apiKeys.set(id, apiKey);
+    
+    // Also persist to database for durability
+    try {
+      const { db } = await import('./db');
+      const { apiKeys } = await import('@shared/schema');
+      
+      await db.insert(apiKeys).values(apiKey);
+      console.log(`[MemStorage] API key "${apiKey.name}" persisted to database`);
+    } catch (error) {
+      console.error("[MemStorage] Failed to persist API key to database:", error);
+    }
+    
     return apiKey;
   }
 
   async deleteApiKey(id: string): Promise<boolean> {
-    return this.apiKeys.delete(id);
+    const deleted = this.apiKeys.delete(id);
+    
+    // Also delete from database
+    if (deleted) {
+      try {
+        const { db } = await import('./db');
+        const { apiKeys } = await import('@shared/schema');
+        const { eq } = await import('drizzle-orm');
+        
+        await db.delete(apiKeys).where(eq(apiKeys.id, id));
+        console.log(`[MemStorage] API key deleted from database`);
+      } catch (error) {
+        console.error("[MemStorage] Failed to delete API key from database:", error);
+      }
+    }
+    
+    return deleted;
   }
 
   async updateApiKeyLastUsed(id: string): Promise<void> {
@@ -432,6 +462,37 @@ export class MemStorage implements IStorage {
     if (apiKey) {
       apiKey.lastUsedAt = new Date();
       this.apiKeys.set(id, apiKey);
+      
+      // Also update in database (async, don't wait)
+      try {
+        const { db } = await import('./db');
+        const { apiKeys } = await import('@shared/schema');
+        const { eq } = await import('drizzle-orm');
+        
+        await db.update(apiKeys)
+          .set({ lastUsedAt: apiKey.lastUsedAt })
+          .where(eq(apiKeys.id, id));
+      } catch (error) {
+        console.error("[MemStorage] Failed to update API key in database:", error);
+      }
+    }
+  }
+  
+  // Load API keys from database into memory
+  async loadApiKeysFromDatabase(): Promise<void> {
+    try {
+      const { db } = await import('./db');
+      const { apiKeys } = await import('@shared/schema');
+      
+      const dbApiKeys = await db.select().from(apiKeys);
+      
+      for (const key of dbApiKeys) {
+        this.apiKeys.set(key.id, key);
+      }
+      
+      console.log(`[MemStorage] Loaded ${dbApiKeys.length} API key(s) from database`);
+    } catch (error) {
+      console.error("[MemStorage] Failed to load API keys from database:", error);
     }
   }
 }
