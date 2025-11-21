@@ -1,6 +1,8 @@
+import { db } from './db';
+import { eq, desc, and, or, sql as sqlQuery } from 'drizzle-orm';
 import { 
   type Call, type InsertCall,
-  type Agent, type InsertAgent,
+  type Agent, type InsertAgent, 
   type Setting, type InsertSetting,
   type User, type InsertUser,
   type Transcript, type InsertTranscript,
@@ -11,9 +13,21 @@ import {
   type ProjectPipeline, type InsertProjectPipeline,
   type ProjectWorkflow, type InsertProjectWorkflow,
   type ProjectAgent, type InsertProjectAgent,
-  type ProjectApiKey, type InsertProjectApiKey
+  type ProjectApiKey, type InsertProjectApiKey,
+  calls,
+  agents,
+  settings,
+  users,
+  transcripts,
+  chatSessions,
+  chatMessages,
+  apiKeys,
+  projects,
+  projectPipelines,
+  projectWorkflows,
+  projectAgents,
+  projectApiKeys
 } from "@shared/schema";
-import { randomUUID } from "crypto";
 
 export interface IStorage {
   // User methods (legacy)
@@ -96,655 +110,705 @@ export interface IStorage {
   removeApiKeyFromProject(projectId: string, apiKeyId: string): Promise<boolean>;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<string, User>;
-  private calls: Map<string, Call>;
-  private agents: Map<string, Agent>;
-  private settings: Map<string, Setting>;
-  private transcripts: Map<string, Transcript>;
-  private chatSessions: Map<string, ChatSession>;
-  private chatMessages: Map<string, ChatMessage>;
-  private apiKeys: Map<string, ApiKey>;
-  private projects: Map<string, Project>;
-  private projectPipelines: Map<string, ProjectPipeline>;
-  private projectWorkflows: Map<string, ProjectWorkflow>;
-  private projectAgents: Map<string, ProjectAgent>;
-  private projectApiKeys: Map<string, ProjectApiKey>;
-
-  constructor() {
-    this.users = new Map();
-    this.calls = new Map();
-    this.agents = new Map();
-    this.settings = new Map();
-    this.transcripts = new Map();
-    this.chatSessions = new Map();
-    this.chatMessages = new Map();
-    this.apiKeys = new Map();
-    this.projects = new Map();
-    this.projectPipelines = new Map();
-    this.projectWorkflows = new Map();
-    this.projectAgents = new Map();
-    this.projectApiKeys = new Map();
-    
-    // Default agent will be added if no system agent is loaded
-    // (see loadSystemAgentsFromDatabase in index.ts)
-  }
-
-  // Method to load an agent into memory (used by initialization)
-  async loadAgentIntoMemory(agent: Agent): Promise<void> {
-    this.agents.set(agent.id, agent);
-    console.log(`[MemStorage] Loaded ${agent.name} into memory`);
-  }
-
-  // Create default fallback agent if no system agents exist
-  async ensureDefaultAgent(): Promise<void> {
-    if (this.agents.size > 0) return;
-
-    const defaultAgentId = randomUUID();
-    this.agents.set(defaultAgentId, {
-      id: defaultAgentId,
-      name: "Customer Support Agent",
-      description: "Friendly AI assistant for customer support",
-      prompt: "You are a helpful customer support assistant. Be friendly, professional, and assist customers with their inquiries.",
-      voiceProvider: "openai",
-      voice: "alloy",
-      temperature: 10,
-      isActive: 1,
-      isSystem: 0,
-      language: "en",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-    console.log("[MemStorage] Created default fallback agent");
-  }
-
+export class DbStorage implements IStorage {
   // User methods
   async getUser(id: string): Promise<User | undefined> {
-    return this.users.get(id);
+    try {
+      const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error getting user:', error);
+      return undefined;
+    }
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
+    try {
+      const result = await db.select().from(users).where(eq(users.username, username)).limit(1);
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error getting user by username:', error);
+      return undefined;
+    }
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const id = randomUUID();
-    const user: User = { ...insertUser, id };
-    this.users.set(id, user);
-    return user;
+    try {
+      const result = await db.insert(users).values(insertUser).returning();
+      console.log('[DbStorage] Created user:', result[0].username);
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error creating user:', error);
+      throw error;
+    }
   }
 
   // Call methods
   async getCalls(limit?: number): Promise<Call[]> {
-    const allCalls = Array.from(this.calls.values()).sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
-    return limit ? allCalls.slice(0, limit) : allCalls;
+    try {
+      let query = db.select().from(calls).orderBy(desc(calls.createdAt));
+      if (limit) {
+        query = query.limit(limit) as any;
+      }
+      const result = await query;
+      return result;
+    } catch (error) {
+      console.error('[DbStorage] Error getting calls:', error);
+      return [];
+    }
   }
 
   async getCall(id: string): Promise<Call | undefined> {
-    return this.calls.get(id);
-  }
-
-  async createCall(insertCall: InsertCall): Promise<Call> {
-    const id = randomUUID();
-    const call: Call = {
-      phoneNumber: insertCall.phoneNumber,
-      direction: insertCall.direction,
-      status: insertCall.status,
-      duration: insertCall.duration ?? null,
-      recording: insertCall.recording ?? null,
-      transcript: insertCall.transcript ?? null,
-      agentId: insertCall.agentId ?? null,
-      tags: insertCall.tags ?? null,
-      metadata: insertCall.metadata ?? null,
-      id,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    this.calls.set(id, call);
-    return call;
-  }
-
-  async updateCall(id: string, updateData: Partial<InsertCall>): Promise<Call | undefined> {
-    const call = this.calls.get(id);
-    if (!call) return undefined;
-
-    const updatedCall: Call = {
-      ...call,
-      ...updateData,
-      updatedAt: new Date(),
-    };
-    this.calls.set(id, updatedCall);
-    return updatedCall;
-  }
-
-  async deleteCall(id: string): Promise<boolean> {
-    return this.calls.delete(id);
+    try {
+      const result = await db.select().from(calls).where(eq(calls.id, id)).limit(1);
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error getting call:', error);
+      return undefined;
+    }
   }
 
   async getCallByTwilioSid(twilioSid: string): Promise<Call | undefined> {
-    return Array.from(this.calls.values()).find(
-      (call) => call.metadata && (call.metadata as any).twilioSid === twilioSid
-    );
+    try {
+      const result = await db.select().from(calls)
+        .where(sqlQuery`${calls.metadata}->>'twilioSid' = ${twilioSid}`)
+        .limit(1);
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error getting call by Twilio SID:', error);
+      return undefined;
+    }
+  }
+
+  async createCall(insertCall: InsertCall): Promise<Call> {
+    try {
+      const result = await db.insert(calls).values(insertCall).returning();
+      console.log('[DbStorage] Created call:', result[0].id);
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error creating call:', error);
+      throw error;
+    }
+  }
+
+  async updateCall(id: string, updateData: Partial<InsertCall>): Promise<Call | undefined> {
+    try {
+      const result = await db.update(calls)
+        .set({
+          ...updateData,
+          updatedAt: new Date()
+        })
+        .where(eq(calls.id, id))
+        .returning();
+      
+      if (result.length > 0) {
+        console.log('[DbStorage] Updated call:', id);
+      }
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error updating call:', error);
+      return undefined;
+    }
+  }
+
+  async deleteCall(id: string): Promise<boolean> {
+    try {
+      const result = await db.delete(calls).where(eq(calls.id, id)).returning();
+      return result.length > 0;
+    } catch (error) {
+      console.error('[DbStorage] Error deleting call:', error);
+      return false;
+    }
   }
 
   // Agent methods
   async getAgents(): Promise<Agent[]> {
-    return Array.from(this.agents.values()).sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
+    try {
+      const result = await db.select().from(agents).orderBy(desc(agents.createdAt));
+      return result;
+    } catch (error) {
+      console.error('[DbStorage] Error getting agents:', error);
+      return [];
+    }
   }
 
   async getAgent(id: string): Promise<Agent | undefined> {
-    return this.agents.get(id);
-  }
-
-  async createAgent(insertAgent: InsertAgent): Promise<Agent> {
-    const id = randomUUID();
-    const agent: Agent = {
-      name: insertAgent.name,
-      description: insertAgent.description ?? null,
-      prompt: insertAgent.prompt,
-      voiceProvider: insertAgent.voiceProvider ?? "openai",
-      voice: insertAgent.voice ?? "alloy",
-      temperature: insertAgent.temperature ?? null,
-      isActive: insertAgent.isActive ?? 1,
-      isSystem: 0, // Regular agents are never system agents (only set via DB initialization)
-      language: insertAgent.language ?? null,
-      id,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    this.agents.set(id, agent);
-    return agent;
-  }
-
-  async updateAgent(id: string, updateData: Partial<InsertAgent>): Promise<Agent | undefined> {
-    const agent = this.agents.get(id);
-    if (!agent) return undefined;
-
-    const updatedAgent: Agent = {
-      ...agent,
-      ...updateData,
-      updatedAt: new Date(),
-    };
-    this.agents.set(id, updatedAgent);
-    return updatedAgent;
-  }
-
-  async deleteAgent(id: string): Promise<boolean> {
-    // Protect system agents from deletion (defense in depth)
-    const agent = this.agents.get(id);
-    if (agent?.isSystem === 1) {
-      throw new Error("System agents cannot be deleted");
+    try {
+      const result = await db.select().from(agents).where(eq(agents.id, id)).limit(1);
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error getting agent:', error);
+      return undefined;
     }
-    return this.agents.delete(id);
   }
 
   async getActiveAgent(): Promise<Agent | undefined> {
-    return Array.from(this.agents.values()).find(
-      (agent) => agent.isActive === 1
-    );
+    try {
+      const result = await db.select().from(agents)
+        .where(eq(agents.isActive, 1))
+        .orderBy(desc(agents.createdAt))
+        .limit(1);
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error getting active agent:', error);
+      return undefined;
+    }
   }
 
   async getSystemAgent(name: string): Promise<Agent | undefined> {
-    return Array.from(this.agents.values()).find(
-      (agent) => agent.isSystem === 1 && agent.name === name
-    );
+    try {
+      const result = await db.select().from(agents)
+        .where(and(
+          eq(agents.isSystem, 1),
+          eq(agents.name, name)
+        ))
+        .limit(1);
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error getting system agent:', error);
+      return undefined;
+    }
+  }
+
+  async createAgent(insertAgent: InsertAgent): Promise<Agent> {
+    try {
+      const result = await db.insert(agents).values(insertAgent).returning();
+      console.log('[DbStorage] Created agent:', result[0].name);
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error creating agent:', error);
+      throw error;
+    }
+  }
+
+  async updateAgent(id: string, updateData: Partial<InsertAgent>): Promise<Agent | undefined> {
+    try {
+      const result = await db.update(agents)
+        .set({
+          ...updateData,
+          updatedAt: new Date()
+        })
+        .where(eq(agents.id, id))
+        .returning();
+      
+      if (result.length > 0) {
+        console.log('[DbStorage] Updated agent:', id);
+      }
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error updating agent:', error);
+      return undefined;
+    }
+  }
+
+  async deleteAgent(id: string): Promise<boolean> {
+    try {
+      // Check if system agent
+      const agent = await this.getAgent(id);
+      if (agent?.isSystem) {
+        console.warn('[DbStorage] Cannot delete system agent:', id);
+        return false;
+      }
+
+      const result = await db.delete(agents).where(eq(agents.id, id)).returning();
+      return result.length > 0;
+    } catch (error) {
+      console.error('[DbStorage] Error deleting agent:', error);
+      return false;
+    }
   }
 
   // Transcript methods
   async getTranscripts(callId: string): Promise<Transcript[]> {
-    return Array.from(this.transcripts.values())
-      .filter((t) => t.callId === callId)
-      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    try {
+      const result = await db.select().from(transcripts)
+        .where(eq(transcripts.callId, callId))
+        .orderBy(transcripts.timestamp);
+      return result;
+    } catch (error) {
+      console.error('[DbStorage] Error getting transcripts:', error);
+      return [];
+    }
   }
 
   async createTranscript(insertTranscript: InsertTranscript): Promise<Transcript> {
-    const id = randomUUID();
-    const transcript: Transcript = {
-      callId: insertTranscript.callId,
-      speaker: insertTranscript.speaker,
-      text: insertTranscript.text,
-      timestamp: insertTranscript.timestamp || new Date(),
-      id,
-      createdAt: new Date(),
-    };
-    this.transcripts.set(id, transcript);
-    return transcript;
+    try {
+      const result = await db.insert(transcripts).values(insertTranscript).returning();
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error creating transcript:', error);
+      throw error;
+    }
   }
 
   // Settings methods
   async getSetting(key: string): Promise<Setting | undefined> {
-    return this.settings.get(key);
+    try {
+      const result = await db.select().from(settings).where(eq(settings.key, key)).limit(1);
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error getting setting:', error);
+      return undefined;
+    }
   }
 
   async setSetting(key: string, value: any): Promise<Setting> {
-    const existing = this.settings.get(key);
-    const setting: Setting = {
-      id: existing?.id || randomUUID(),
-      key,
-      value,
-      updatedAt: new Date(),
-    };
-    this.settings.set(key, setting);
-    return setting;
+    try {
+      // Try to update existing setting first
+      const existing = await this.getSetting(key);
+      
+      if (existing) {
+        const result = await db.update(settings)
+          .set({
+            value: value,
+            updatedAt: new Date()
+          })
+          .where(eq(settings.key, key))
+          .returning();
+        return result[0];
+      } else {
+        // Insert new setting
+        const result = await db.insert(settings)
+          .values({
+            key: key,
+            value: value
+          })
+          .returning();
+        console.log('[DbStorage] Created setting:', key);
+        return result[0];
+      }
+    } catch (error) {
+      console.error('[DbStorage] Error setting value:', error);
+      throw error;
+    }
   }
 
   // Chat session methods
   async getChatSessions(limit?: number): Promise<ChatSession[]> {
-    let sessions = Array.from(this.chatSessions.values());
-    
-    // Sort by most recent first
-    sessions = sessions.sort(
-      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-    );
-    
-    // Apply limit if provided
-    if (limit) {
-      sessions = sessions.slice(0, limit);
+    try {
+      let query = db.select().from(chatSessions).orderBy(desc(chatSessions.updatedAt));
+      if (limit) {
+        query = query.limit(limit) as any;
+      }
+      const result = await query;
+      return result;
+    } catch (error) {
+      console.error('[DbStorage] Error getting chat sessions:', error);
+      return [];
     }
-    
-    return sessions;
   }
 
   async getChatSession(id: string): Promise<ChatSession | undefined> {
-    return this.chatSessions.get(id);
+    try {
+      const result = await db.select().from(chatSessions).where(eq(chatSessions.id, id)).limit(1);
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error getting chat session:', error);
+      return undefined;
+    }
   }
 
   async createChatSession(insertSession: InsertChatSession): Promise<ChatSession> {
-    const id = randomUUID();
-    const session: ChatSession = {
-      id,
-      title: insertSession.title ?? "New Chat",
-      agentId: insertSession.agentId ?? null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    this.chatSessions.set(id, session);
-    return session;
+    try {
+      const result = await db.insert(chatSessions).values(insertSession).returning();
+      console.log('[DbStorage] Created chat session:', result[0].id);
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error creating chat session:', error);
+      throw error;
+    }
   }
 
   async updateChatSession(id: string, updateData: Partial<InsertChatSession>): Promise<ChatSession | undefined> {
-    const existing = this.chatSessions.get(id);
-    if (!existing) return undefined;
-    
-    const updated: ChatSession = {
-      ...existing,
-      ...updateData,
-      updatedAt: new Date(),
-    };
-    this.chatSessions.set(id, updated);
-    return updated;
+    try {
+      const result = await db.update(chatSessions)
+        .set({
+          ...updateData,
+          updatedAt: new Date()
+        })
+        .where(eq(chatSessions.id, id))
+        .returning();
+      
+      if (result.length > 0) {
+        console.log('[DbStorage] Updated chat session:', id);
+      }
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error updating chat session:', error);
+      return undefined;
+    }
   }
 
   async deleteChatSession(id: string): Promise<boolean> {
-    const existed = this.chatSessions.has(id);
-    if (existed) {
-      this.chatSessions.delete(id);
-      // Also delete associated messages
-      await this.deleteChatMessages(id);
+    try {
+      const result = await db.delete(chatSessions).where(eq(chatSessions.id, id)).returning();
+      return result.length > 0;
+    } catch (error) {
+      console.error('[DbStorage] Error deleting chat session:', error);
+      return false;
     }
-    return existed;
   }
 
   // Chat message methods
   async getChatMessages(sessionId?: string, limit?: number): Promise<ChatMessage[]> {
-    let messages = Array.from(this.chatMessages.values());
-    
-    // Filter by session if provided
-    if (sessionId) {
-      messages = messages.filter((m) => m.sessionId === sessionId);
+    try {
+      let query = db.select().from(chatMessages).orderBy(desc(chatMessages.createdAt));
+      
+      if (sessionId) {
+        query = query.where(eq(chatMessages.sessionId, sessionId)) as any;
+      }
+      
+      if (limit) {
+        query = query.limit(limit) as any;
+      }
+      
+      const result = await query;
+      return result;
+    } catch (error) {
+      console.error('[DbStorage] Error getting chat messages:', error);
+      return [];
     }
-    
-    // Sort by creation time (oldest first for chat history)
-    messages = messages.sort(
-      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-    );
-    
-    // Apply limit if provided
-    if (limit) {
-      messages = messages.slice(-limit); // Get last N messages
-    }
-    
-    return messages;
   }
 
   async createChatMessage(insertMessage: InsertChatMessage): Promise<ChatMessage> {
-    const id = randomUUID();
-    const message: ChatMessage = {
-      id,
-      sessionId: insertMessage.sessionId ?? null,
-      role: insertMessage.role,
-      content: insertMessage.content,
-      metadata: insertMessage.metadata ?? null,
-      createdAt: new Date(),
-    };
-    this.chatMessages.set(id, message);
-    return message;
+    try {
+      const result = await db.insert(chatMessages).values(insertMessage).returning();
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error creating chat message:', error);
+      throw error;
+    }
   }
 
   async deleteChatMessages(sessionId: string): Promise<boolean> {
-    const messagesToDelete = Array.from(this.chatMessages.values())
-      .filter((m) => m.sessionId === sessionId);
-    
-    messagesToDelete.forEach((m) => this.chatMessages.delete(m.id));
-    return messagesToDelete.length > 0;
+    try {
+      const result = await db.delete(chatMessages)
+        .where(eq(chatMessages.sessionId, sessionId))
+        .returning();
+      return result.length > 0;
+    } catch (error) {
+      console.error('[DbStorage] Error deleting chat messages:', error);
+      return false;
+    }
   }
 
   // API Key methods
   async getApiKeys(): Promise<ApiKey[]> {
-    return Array.from(this.apiKeys.values()).sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
+    try {
+      const result = await db.select().from(apiKeys).orderBy(desc(apiKeys.createdAt));
+      return result;
+    } catch (error) {
+      console.error('[DbStorage] Error getting API keys:', error);
+      return [];
+    }
   }
 
   async getApiKey(id: string): Promise<ApiKey | undefined> {
-    return this.apiKeys.get(id);
+    try {
+      const result = await db.select().from(apiKeys).where(eq(apiKeys.id, id)).limit(1);
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error getting API key:', error);
+      return undefined;
+    }
   }
 
   async getApiKeyByHash(keyHash: string): Promise<ApiKey | undefined> {
-    return Array.from(this.apiKeys.values()).find(
-      (key) => key.keyHash === keyHash
-    );
+    try {
+      const result = await db.select().from(apiKeys)
+        .where(eq(apiKeys.keyHash, keyHash))
+        .limit(1);
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error getting API key by hash:', error);
+      return undefined;
+    }
   }
 
   async createApiKey(insertApiKey: InsertApiKey): Promise<ApiKey> {
-    const id = randomUUID();
-    const apiKey: ApiKey = {
-      id,
-      name: insertApiKey.name,
-      keyHash: insertApiKey.keyHash,
-      keyPrefix: insertApiKey.keyPrefix,
-      lastUsedAt: null,
-      expiresAt: insertApiKey.expiresAt ?? null,
-      createdAt: new Date(),
-    };
-    
-    // Store in memory for fast access
-    this.apiKeys.set(id, apiKey);
-    
-    // Also persist to database for durability
     try {
-      const { db } = await import('./db');
-      const { apiKeys } = await import('@shared/schema');
-      
-      await db.insert(apiKeys).values(apiKey);
-      console.log(`[MemStorage] API key "${apiKey.name}" persisted to database`);
+      const result = await db.insert(apiKeys).values(insertApiKey).returning();
+      console.log('[DbStorage] Created API key:', result[0].name);
+      return result[0];
     } catch (error) {
-      console.error("[MemStorage] Failed to persist API key to database:", error);
+      console.error('[DbStorage] Error creating API key:', error);
+      throw error;
     }
-    
-    return apiKey;
   }
 
   async deleteApiKey(id: string): Promise<boolean> {
-    const deleted = this.apiKeys.delete(id);
-    
-    // Also delete from database
-    if (deleted) {
-      try {
-        const { db } = await import('./db');
-        const { apiKeys } = await import('@shared/schema');
-        const { eq } = await import('drizzle-orm');
-        
-        await db.delete(apiKeys).where(eq(apiKeys.id, id));
-        console.log(`[MemStorage] API key deleted from database`);
-      } catch (error) {
-        console.error("[MemStorage] Failed to delete API key from database:", error);
-      }
+    try {
+      const result = await db.delete(apiKeys).where(eq(apiKeys.id, id)).returning();
+      return result.length > 0;
+    } catch (error) {
+      console.error('[DbStorage] Error deleting API key:', error);
+      return false;
     }
-    
-    return deleted;
   }
 
   async updateApiKeyLastUsed(id: string): Promise<void> {
-    const apiKey = this.apiKeys.get(id);
-    if (apiKey) {
-      apiKey.lastUsedAt = new Date();
-      this.apiKeys.set(id, apiKey);
-      
-      // Also update in database (async, don't wait)
-      try {
-        const { db } = await import('./db');
-        const { apiKeys } = await import('@shared/schema');
-        const { eq } = await import('drizzle-orm');
-        
-        await db.update(apiKeys)
-          .set({ lastUsedAt: apiKey.lastUsedAt })
-          .where(eq(apiKeys.id, id));
-      } catch (error) {
-        console.error("[MemStorage] Failed to update API key in database:", error);
-      }
-    }
-  }
-  
-  // Load API keys from database into memory
-  async loadApiKeysFromDatabase(): Promise<void> {
     try {
-      const { db } = await import('./db');
-      const { apiKeys } = await import('@shared/schema');
-      
-      const dbApiKeys = await db.select().from(apiKeys);
-      
-      for (const key of dbApiKeys) {
-        this.apiKeys.set(key.id, key);
-      }
-      
-      console.log(`[MemStorage] Loaded ${dbApiKeys.length} API key(s) from database`);
+      await db.update(apiKeys)
+        .set({ lastUsedAt: new Date() })
+        .where(eq(apiKeys.id, id));
     } catch (error) {
-      console.error("[MemStorage] Failed to load API keys from database:", error);
+      console.error('[DbStorage] Error updating API key last used:', error);
     }
   }
 
   // Project methods
   async getProjects(limit?: number): Promise<Project[]> {
-    const allProjects = Array.from(this.projects.values()).sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
-    return limit ? allProjects.slice(0, limit) : allProjects;
+    try {
+      let query = db.select().from(projects).orderBy(desc(projects.createdAt));
+      if (limit) {
+        query = query.limit(limit) as any;
+      }
+      const result = await query;
+      return result;
+    } catch (error) {
+      console.error('[DbStorage] Error getting projects:', error);
+      return [];
+    }
   }
 
   async getProject(id: string): Promise<Project | undefined> {
-    return this.projects.get(id);
+    try {
+      const result = await db.select().from(projects).where(eq(projects.id, id)).limit(1);
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error getting project:', error);
+      return undefined;
+    }
   }
 
   async createProject(insertProject: InsertProject): Promise<Project> {
-    const id = randomUUID();
-    const project: Project = {
-      id,
-      ...insertProject,
-      status: insertProject.status ?? "active",
-      metadata: insertProject.metadata ?? null,
-      googleCalendarId: insertProject.googleCalendarId ?? null,
-      googleCalendarSettings: insertProject.googleCalendarSettings ?? null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    
-    this.projects.set(id, project);
-    return project;
+    try {
+      const result = await db.insert(projects).values(insertProject).returning();
+      console.log('[DbStorage] Created project:', result[0].name);
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error creating project:', error);
+      throw error;
+    }
   }
 
   async updateProject(id: string, updateData: Partial<InsertProject>): Promise<Project | undefined> {
-    const project = this.projects.get(id);
-    if (!project) return undefined;
-    
-    const updated = {
-      ...project,
-      ...updateData,
-      updatedAt: new Date(),
-    };
-    
-    this.projects.set(id, updated);
-    return updated;
+    try {
+      const result = await db.update(projects)
+        .set({
+          ...updateData,
+          updatedAt: new Date()
+        })
+        .where(eq(projects.id, id))
+        .returning();
+      
+      if (result.length > 0) {
+        console.log('[DbStorage] Updated project:', id);
+      }
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error updating project:', error);
+      return undefined;
+    }
   }
 
   async deleteProject(id: string): Promise<boolean> {
-    // Also delete related data
-    for (const [pipelineId, pipeline] of this.projectPipelines) {
-      if (pipeline.projectId === id) {
-        this.projectPipelines.delete(pipelineId);
-      }
+    try {
+      // Cascade deletes are handled by database foreign key constraints
+      const result = await db.delete(projects).where(eq(projects.id, id)).returning();
+      return result.length > 0;
+    } catch (error) {
+      console.error('[DbStorage] Error deleting project:', error);
+      return false;
     }
-    for (const [workflowId, workflow] of this.projectWorkflows) {
-      if (workflow.projectId === id) {
-        this.projectWorkflows.delete(workflowId);
-      }
-    }
-    for (const [agentId, agent] of this.projectAgents) {
-      if (agent.projectId === id) {
-        this.projectAgents.delete(agentId);
-      }
-    }
-    for (const [keyId, key] of this.projectApiKeys) {
-      if (key.projectId === id) {
-        this.projectApiKeys.delete(keyId);
-      }
-    }
-    
-    return this.projects.delete(id);
   }
 
   // Project Pipeline methods
   async getProjectPipelines(projectId: string): Promise<ProjectPipeline[]> {
-    return Array.from(this.projectPipelines.values())
-      .filter(p => p.projectId === projectId)
-      .sort((a, b) => a.order - b.order);
+    try {
+      const result = await db.select().from(projectPipelines)
+        .where(eq(projectPipelines.projectId, projectId))
+        .orderBy(projectPipelines.order);
+      return result;
+    } catch (error) {
+      console.error('[DbStorage] Error getting project pipelines:', error);
+      return [];
+    }
   }
 
   async createProjectPipeline(insertPipeline: InsertProjectPipeline): Promise<ProjectPipeline> {
-    const id = randomUUID();
-    const pipeline: ProjectPipeline = {
-      id,
-      ...insertPipeline,
-      color: insertPipeline.color ?? null,
-      automations: insertPipeline.automations ?? null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    
-    this.projectPipelines.set(id, pipeline);
-    return pipeline;
+    try {
+      const result = await db.insert(projectPipelines).values(insertPipeline).returning();
+      console.log('[DbStorage] Created project pipeline:', result[0].name);
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error creating project pipeline:', error);
+      throw error;
+    }
   }
 
   async updateProjectPipeline(id: string, updateData: Partial<InsertProjectPipeline>): Promise<ProjectPipeline | undefined> {
-    const pipeline = this.projectPipelines.get(id);
-    if (!pipeline) return undefined;
-    
-    const updated = {
-      ...pipeline,
-      ...updateData,
-      updatedAt: new Date(),
-    };
-    
-    this.projectPipelines.set(id, updated);
-    return updated;
+    try {
+      const result = await db.update(projectPipelines)
+        .set({
+          ...updateData,
+          updatedAt: new Date()
+        })
+        .where(eq(projectPipelines.id, id))
+        .returning();
+      
+      if (result.length > 0) {
+        console.log('[DbStorage] Updated project pipeline:', id);
+      }
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error updating project pipeline:', error);
+      return undefined;
+    }
   }
 
   async deleteProjectPipeline(id: string): Promise<boolean> {
-    return this.projectPipelines.delete(id);
+    try {
+      const result = await db.delete(projectPipelines).where(eq(projectPipelines.id, id)).returning();
+      return result.length > 0;
+    } catch (error) {
+      console.error('[DbStorage] Error deleting project pipeline:', error);
+      return false;
+    }
   }
 
   // Project Workflow methods
   async getProjectWorkflows(projectId: string): Promise<ProjectWorkflow[]> {
-    return Array.from(this.projectWorkflows.values())
-      .filter(w => w.projectId === projectId)
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    try {
+      const result = await db.select().from(projectWorkflows)
+        .where(eq(projectWorkflows.projectId, projectId))
+        .orderBy(desc(projectWorkflows.createdAt));
+      return result;
+    } catch (error) {
+      console.error('[DbStorage] Error getting project workflows:', error);
+      return [];
+    }
   }
 
   async createProjectWorkflow(insertWorkflow: InsertProjectWorkflow): Promise<ProjectWorkflow> {
-    const id = randomUUID();
-    const workflow: ProjectWorkflow = {
-      id,
-      ...insertWorkflow,
-      isActive: insertWorkflow.isActive ?? 1,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    
-    this.projectWorkflows.set(id, workflow);
-    return workflow;
+    try {
+      const result = await db.insert(projectWorkflows).values(insertWorkflow).returning();
+      console.log('[DbStorage] Created project workflow:', result[0].name);
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error creating project workflow:', error);
+      throw error;
+    }
   }
 
   async updateProjectWorkflow(id: string, updateData: Partial<InsertProjectWorkflow>): Promise<ProjectWorkflow | undefined> {
-    const workflow = this.projectWorkflows.get(id);
-    if (!workflow) return undefined;
-    
-    const updated = {
-      ...workflow,
-      ...updateData,
-      updatedAt: new Date(),
-    };
-    
-    this.projectWorkflows.set(id, updated);
-    return updated;
+    try {
+      const result = await db.update(projectWorkflows)
+        .set({
+          ...updateData,
+          updatedAt: new Date()
+        })
+        .where(eq(projectWorkflows.id, id))
+        .returning();
+      
+      if (result.length > 0) {
+        console.log('[DbStorage] Updated project workflow:', id);
+      }
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error updating project workflow:', error);
+      return undefined;
+    }
   }
 
   async deleteProjectWorkflow(id: string): Promise<boolean> {
-    return this.projectWorkflows.delete(id);
+    try {
+      const result = await db.delete(projectWorkflows).where(eq(projectWorkflows.id, id)).returning();
+      return result.length > 0;
+    } catch (error) {
+      console.error('[DbStorage] Error deleting project workflow:', error);
+      return false;
+    }
   }
 
   // Project Agent methods
   async getProjectAgents(projectId: string): Promise<ProjectAgent[]> {
-    return Array.from(this.projectAgents.values())
-      .filter(pa => pa.projectId === projectId)
-      .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
+    try {
+      const result = await db.select().from(projectAgents)
+        .where(eq(projectAgents.projectId, projectId))
+        .orderBy(desc(projectAgents.priority));
+      return result;
+    } catch (error) {
+      console.error('[DbStorage] Error getting project agents:', error);
+      return [];
+    }
   }
 
   async addAgentToProject(insertProjectAgent: InsertProjectAgent): Promise<ProjectAgent> {
-    const id = randomUUID();
-    const projectAgent: ProjectAgent = {
-      id,
-      ...insertProjectAgent,
-      role: insertProjectAgent.role ?? null,
-      priority: insertProjectAgent.priority ?? 0,
-      createdAt: new Date(),
-    };
-    
-    this.projectAgents.set(id, projectAgent);
-    return projectAgent;
+    try {
+      const result = await db.insert(projectAgents).values(insertProjectAgent).returning();
+      console.log('[DbStorage] Added agent to project');
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error adding agent to project:', error);
+      throw error;
+    }
   }
 
   async removeAgentFromProject(projectId: string, agentId: string): Promise<boolean> {
-    for (const [id, pa] of this.projectAgents) {
-      if (pa.projectId === projectId && pa.agentId === agentId) {
-        return this.projectAgents.delete(id);
-      }
+    try {
+      const result = await db.delete(projectAgents)
+        .where(and(
+          eq(projectAgents.projectId, projectId),
+          eq(projectAgents.agentId, agentId)
+        ))
+        .returning();
+      return result.length > 0;
+    } catch (error) {
+      console.error('[DbStorage] Error removing agent from project:', error);
+      return false;
     }
-    return false;
   }
 
   // Project API Key methods
   async getProjectApiKeys(projectId: string): Promise<ProjectApiKey[]> {
-    return Array.from(this.projectApiKeys.values())
-      .filter(pk => pk.projectId === projectId);
+    try {
+      const result = await db.select().from(projectApiKeys)
+        .where(eq(projectApiKeys.projectId, projectId))
+        .orderBy(desc(projectApiKeys.createdAt));
+      return result;
+    } catch (error) {
+      console.error('[DbStorage] Error getting project API keys:', error);
+      return [];
+    }
   }
 
   async addApiKeyToProject(insertProjectApiKey: InsertProjectApiKey): Promise<ProjectApiKey> {
-    const id = randomUUID();
-    const projectApiKey: ProjectApiKey = {
-      id,
-      ...insertProjectApiKey,
-      permissions: insertProjectApiKey.permissions ?? null,
-      createdAt: new Date(),
-    };
-    
-    this.projectApiKeys.set(id, projectApiKey);
-    return projectApiKey;
+    try {
+      const result = await db.insert(projectApiKeys).values(insertProjectApiKey).returning();
+      console.log('[DbStorage] Added API key to project');
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error adding API key to project:', error);
+      throw error;
+    }
   }
 
   async removeApiKeyFromProject(projectId: string, apiKeyId: string): Promise<boolean> {
-    for (const [id, pk] of this.projectApiKeys) {
-      if (pk.projectId === projectId && pk.apiKeyId === apiKeyId) {
-        return this.projectApiKeys.delete(id);
-      }
+    try {
+      const result = await db.delete(projectApiKeys)
+        .where(and(
+          eq(projectApiKeys.projectId, projectId),
+          eq(projectApiKeys.apiKeyId, apiKeyId)
+        ))
+        .returning();
+      return result.length > 0;
+    } catch (error) {
+      console.error('[DbStorage] Error removing API key from project:', error);
+      return false;
     }
-    return false;
   }
 }
 
-export const storage = new MemStorage();
+// Export a single instance of DbStorage for database persistence
+export const storage = new DbStorage();

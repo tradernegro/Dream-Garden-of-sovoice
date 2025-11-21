@@ -92,27 +92,6 @@ app.use((req, res, next) => {
         // Initialize system agents in database (permanent agents that survive restarts)
         await initializeSystemAgents();
 
-        // Load system agents from database into MemStorage
-        const { db } = await import('./db');
-        const { agents } = await import('@shared/schema');
-        const { eq } = await import('drizzle-orm');
-        const { storage } = await import('./storage');
-        
-        const systemAgents = await db
-          .select()
-          .from(agents)
-          .where(eq(agents.isSystem, 1));
-        
-        for (const agent of systemAgents) {
-          await storage.loadAgentIntoMemory(agent);
-        }
-        
-        // Ensure at least one agent exists
-        await storage.ensureDefaultAgent();
-
-        // Load API keys from database into MemStorage (for persistence across restarts)
-        await storage.loadApiKeysFromDatabase();
-
         // Seed sample data ONLY in development (skip in production)
         if (app.get("env") === "development") {
           await seedData();
