@@ -24,6 +24,7 @@ import { ElevenLabsRealtimeSession } from "./elevenlabs-realtime-session";
 import { getElevenLabsVoices } from "./elevenlabs-client";
 import { z } from "zod";
 import cors from "cors";
+import { createOAuth2Client, generateAuthUrl, exchangeCodeForTokens, getOAuth2ClientForProject, GoogleCalendarService, GmailService } from "./google-oauth";
 
 // WebSocket clients for real-time updates
 const wsClients = new Set<WebSocket>();
@@ -997,6 +998,145 @@ AGENT_CREATE:
     } catch (error) {
       console.error("Failed to delete project:", error);
       res.status(500).json({ error: "Failed to delete project" });
+    }
+  });
+
+  // Google OAuth endpoints for Projects
+  app.get("/api/projects/:projectId/google/auth", async (req: Request, res: Response) => {
+    try {
+      const { projectId } = req.params;
+      const authUrl = generateAuthUrl(projectId);
+      res.json({ authUrl });
+    } catch (error) {
+      console.error("Failed to generate Google auth URL:", error);
+      res.status(500).json({ error: "Failed to generate authorization URL" });
+    }
+  });
+
+  // Google OAuth callback
+  app.get("/api/google/callback", async (req: Request, res: Response) => {
+    try {
+      const { code, state: projectId } = req.query;
+
+      if (!code || !projectId) {
+        return res.status(400).json({ error: "Missing code or project ID" });
+      }
+
+      // Exchange code for tokens
+      const tokens = await exchangeCodeForTokens(code as string);
+
+      // Get user email from Gmail profile
+      const oauth2Client = createOAuth2Client();
+      oauth2Client.setCredentials(tokens);
+      const gmailService = new GmailService(oauth2Client);
+      const profile = await gmailService.getProfile();
+
+      // Update project with OAuth tokens
+      await storage.updateProject(projectId as string, {
+        googleOAuthTokens: tokens,
+        googleOAuthEmail: profile.emailAddress,
+        googleOAuthConnectedAt: new Date()
+      });
+
+      // Redirect to project settings page with success
+      res.redirect(`/projects/${projectId}?google_connected=true`);
+    } catch (error) {
+      console.error("Google OAuth callback error:", error);
+      res.redirect(`/projects?google_error=true`);
+    }
+  });
+
+  // Disconnect Google account from project
+  app.delete("/api/projects/:projectId/google/disconnect", async (req: Request, res: Response) => {
+    try {
+      const { projectId } = req.params;
+      
+      await storage.updateProject(projectId, {
+        googleOAuthTokens: null,
+        googleOAuthEmail: null,
+        googleOAuthConnectedAt: null
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Failed to disconnect Google account:", error);
+      res.status(500).json({ error: "Failed to disconnect Google account" });
+    }
+  });
+
+  // Google Calendar API endpoints
+  app.get("/api/projects/:projectId/calendar/events", async (req: Request, res: Response) => {
+    try {
+      const { projectId } = req.params;
+      const oauth2Client = await getOAuth2ClientForProject(projectId);
+      
+      if (!oauth2Client) {
+        return res.status(401).json({ error: "Google account not connected" });
+      }
+
+      const calendarService = new GoogleCalendarService(oauth2Client);
+      const events = await calendarService.listEvents();
+      res.json(events);
+    } catch (error) {
+      console.error("Failed to list calendar events:", error);
+      res.status(500).json({ error: "Failed to list calendar events" });
+    }
+  });
+
+  app.post("/api/projects/:projectId/calendar/events", async (req: Request, res: Response) => {
+    try {
+      const { projectId } = req.params;
+      const oauth2Client = await getOAuth2ClientForProject(projectId);
+      
+      if (!oauth2Client) {
+        return res.status(401).json({ error: "Google account not connected" });
+      }
+
+      const calendarService = new GoogleCalendarService(oauth2Client);
+      const event = await calendarService.createEvent(req.body);
+      res.json(event);
+    } catch (error) {
+      console.error("Failed to create calendar event:", error);
+      res.status(500).json({ error: "Failed to create calendar event" });
+    }
+  });
+
+  // Gmail API endpoints  
+  app.get("/api/projects/:projectId/gmail/messages", async (req: Request, res: Response) => {
+    try {
+      const { projectId } = req.params;
+      const { q = '' } = req.query;
+      const oauth2Client = await getOAuth2ClientForProject(projectId);
+      
+      if (!oauth2Client) {
+        return res.status(401).json({ error: "Google account not connected" });
+      }
+
+      const gmailService = new GmailService(oauth2Client);
+      const messages = await gmailService.listMessages(q as string);
+      res.json(messages);
+    } catch (error) {
+      console.error("Failed to list Gmail messages:", error);
+      res.status(500).json({ error: "Failed to list messages" });
+    }
+  });
+
+  app.post("/api/projects/:projectId/gmail/send", async (req: Request, res: Response) => {
+    try {
+      const { projectId } = req.params;
+      const { to, subject, body, cc, bcc } = req.body;
+      const oauth2Client = await getOAuth2ClientForProject(projectId);
+      
+      if (!oauth2Client) {
+        return res.status(401).json({ error: "Google account not connected" });
+      }
+
+      const gmailService = new GmailService(oauth2Client);
+      const result = await gmailService.sendEmail(to, subject, body, cc, bcc);
+      res.json(result);
+    } catch (error) {
+      console.error("Failed to send email:", error);
+      res.status(500).json({ error: "Failed to send email" });
     }
   });
 

@@ -189,6 +189,9 @@ export const projects = pgTable("projects", {
   metadata: jsonb("metadata"), // Additional project data
   googleCalendarId: text("google_calendar_id"), // Google Calendar integration
   googleCalendarSettings: jsonb("google_calendar_settings"), // Calendar sync settings
+  googleOAuthTokens: jsonb("google_oauth_tokens"), // Encrypted OAuth2 tokens (access, refresh)
+  googleOAuthEmail: text("google_oauth_email"), // Email of connected Google account
+  googleOAuthConnectedAt: timestamp("google_oauth_connected_at"), // When Google was connected
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
