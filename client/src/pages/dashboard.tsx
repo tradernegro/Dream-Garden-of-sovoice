@@ -72,38 +72,6 @@ export default function Dashboard() {
     setLocation(`/chat?message=${encodeURIComponent(chatInput)}`);
   };
 
-  // Sample community templates data
-  const communityTemplates = [
-    {
-      id: "1",
-      name: "Sales Call Agent",
-      description: "Outbound sales assistant",
-      badge: "Elevate",
-      type: "outbound",
-    },
-    {
-      id: "2",
-      name: "Customer Support",
-      description: "Inbound support handler",
-      badge: "Elevate",
-      type: "inbound",
-    },
-    {
-      id: "3",
-      name: "Appointment Scheduler",
-      description: "Schedule appointments automatically",
-      badge: "Template",
-      type: "inbound",
-    },
-    {
-      id: "4",
-      name: "Lead Qualifier",
-      description: "Qualify leads before transfer",
-      badge: "Elevate",
-      type: "outbound",
-    },
-  ];
-
   return (
     <div className="space-y-12 max-w-6xl mx-auto">
       {/* Hero Section */}
