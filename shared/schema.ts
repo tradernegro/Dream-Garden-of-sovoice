@@ -181,10 +181,10 @@ export type ApiKey = typeof apiKeys.$inferSelect;
 export const projects = pgTable("projects", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
-  customerName: text("customer_name").notNull(),
-  customerEmail: text("customer_email"),
-  customerPhone: text("customer_phone"),
   description: text("description"),
+  industry: text("industry"), // Industry or sector
+  contactEmail: text("contact_email"),
+  contactPhone: text("contact_phone"),
   status: text("status").notNull().default("active"), // active, paused, archived
   metadata: jsonb("metadata"), // Additional project data
   googleCalendarId: text("google_calendar_id"), // Google Calendar integration
@@ -207,7 +207,7 @@ export const projectPipelines = pgTable("project_pipelines", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
-  stage: text("stage").notNull(), // lead, qualified, proposal, negotiation, closed-won, closed-lost
+  description: text("description"), // Pipeline description
   order: integer("order").notNull(), // Display order
   color: text("color"), // UI color for the stage
   automations: jsonb("automations"), // Actions to trigger on stage entry
@@ -229,8 +229,9 @@ export const projectWorkflows = pgTable("project_workflows", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
-  trigger: text("trigger").notNull(), // inbound_call, outbound_call, form_submit, schedule, api_webhook
-  steps: jsonb("steps").notNull(), // Array of workflow steps
+  description: text("description"), // Workflow description
+  type: text("type").notNull(), // call_handling, calendar_integration, data_sync, automation
+  configuration: jsonb("configuration"), // Workflow configuration
   isActive: integer("is_active").notNull().default(1),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
