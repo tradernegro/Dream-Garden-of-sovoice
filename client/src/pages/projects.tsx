@@ -49,7 +49,10 @@ const createProjectSchema = z.object({
   name: z.string().min(1, "Project name is required"),
   description: z.string().optional(),
   industry: z.string().optional(),
-  contactEmail: z.string().email().optional().or(z.literal("")),
+  contactEmail: z.union([
+    z.string().email(),
+    z.literal(""),
+  ]).optional(),
   contactPhone: z.string().optional(),
 });
 
@@ -63,11 +66,10 @@ export default function ProjectsPage() {
   });
 
   const createProjectMutation = useMutation({
-    mutationFn: (data: z.infer<typeof createProjectSchema>) =>
-      apiRequest("/api/projects", {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
+    mutationFn: async (data: z.infer<typeof createProjectSchema>) => {
+      const response = await apiRequest("POST", "/api/projects", data);
+      return response.json();
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
       setCreateDialogOpen(false);
@@ -77,7 +79,8 @@ export default function ProjectsPage() {
       });
       form.reset();
     },
-    onError: () => {
+    onError: (error) => {
+      console.error("Failed to create project:", error);
       toast({
         title: "Error",
         description: "Failed to create project. Please try again.",
@@ -87,11 +90,10 @@ export default function ProjectsPage() {
   });
 
   const updateProjectMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<Project> }) =>
-      apiRequest(`/api/projects/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify(data),
-      }),
+    mutationFn: async ({ id, data }: { id: string; data: Partial<Project> }) => {
+      const response = await apiRequest("PATCH", `/api/projects/${id}`, data);
+      return response.json();
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
       setEditingProject(null);
@@ -111,10 +113,10 @@ export default function ProjectsPage() {
   });
 
   const deleteProjectMutation = useMutation({
-    mutationFn: (id: string) =>
-      apiRequest(`/api/projects/${id}`, {
-        method: "DELETE",
-      }),
+    mutationFn: async (id: string) => {
+      const response = await apiRequest("DELETE", `/api/projects/${id}`);
+      return response.json();
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
       toast({
@@ -143,6 +145,7 @@ export default function ProjectsPage() {
   });
 
   const handleCreateProject = (values: z.infer<typeof createProjectSchema>) => {
+    console.log("Form submitted with values:", values);
     if (editingProject) {
       updateProjectMutation.mutate({
         id: editingProject.id,
@@ -151,6 +154,10 @@ export default function ProjectsPage() {
     } else {
       createProjectMutation.mutate(values);
     }
+  };
+  
+  const onFormError = (errors: any) => {
+    console.error("Form validation errors:", errors);
   };
 
   const handleEdit = (project: Project) => {
@@ -319,7 +326,7 @@ export default function ProjectsPage() {
             </DialogDescription>
           </DialogHeader>
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(handleCreateProject)} className="space-y-4">
+            <form onSubmit={form.handleSubmit(handleCreateProject, onFormError)} className="space-y-4">
               <FormField
                 control={form.control}
                 name="name"

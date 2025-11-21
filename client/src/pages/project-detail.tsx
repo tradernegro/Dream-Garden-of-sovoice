@@ -89,11 +89,10 @@ export default function ProjectDetailPage() {
 
   // Pipeline mutations
   const createPipelineMutation = useMutation({
-    mutationFn: (data: z.infer<typeof pipelineSchema>) =>
-      apiRequest(`/api/projects/${projectId}/pipelines`, {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
+    mutationFn: async (data: z.infer<typeof pipelineSchema>) => {
+      const response = await apiRequest("POST", `/api/projects/${projectId}/pipelines`, data);
+      return response.json();
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/projects/${projectId}/pipelines`] });
       setPipelineDialogOpen(false);
@@ -107,14 +106,13 @@ export default function ProjectDetailPage() {
 
   // Workflow mutations
   const createWorkflowMutation = useMutation({
-    mutationFn: (data: z.infer<typeof workflowSchema>) =>
-      apiRequest(`/api/projects/${projectId}/workflows`, {
-        method: "POST",
-        body: JSON.stringify({
-          ...data,
-          configuration: data.configuration ? JSON.parse(data.configuration) : null,
-        }),
-      }),
+    mutationFn: async (data: z.infer<typeof workflowSchema>) => {
+      const response = await apiRequest("POST", `/api/projects/${projectId}/workflows`, {
+        ...data,
+        configuration: data.configuration ? JSON.parse(data.configuration) : null,
+      });
+      return response.json();
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/projects/${projectId}/workflows`] });
       setWorkflowDialogOpen(false);
