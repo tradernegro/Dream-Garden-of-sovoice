@@ -4,6 +4,13 @@
 
 SoVoice AI is an AI-powered voice call assistant platform designed to automate customer phone interactions. The application provides real-time conversation management, call analytics, and agent configuration capabilities. Built as a full-stack SaaS platform, it enables businesses to handle inbound and outbound calls using AI agents with customizable behavior and voice characteristics.
 
+## Recent Changes (November 2025)
+
+- **Color Scheme Update**: Successfully updated entire application from blue to orange theme
+  - Changed all CSS color variables from hue 210 (blue) to hue 30 (orange)
+  - Updated primary, secondary, accent, sidebar, and chart colors in both light/dark modes
+  - Applied orange theme consistently across all UI components and code highlighting
+
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
