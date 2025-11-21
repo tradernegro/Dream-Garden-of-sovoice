@@ -176,3 +176,106 @@ export const insertApiKeySchema = createInsertSchema(apiKeys).omit({
 
 export type InsertApiKey = z.infer<typeof insertApiKeySchema>;
 export type ApiKey = typeof apiKeys.$inferSelect;
+
+// Projects - represents a customer with their complete setup
+export const projects = pgTable("projects", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  customerName: text("customer_name").notNull(),
+  customerEmail: text("customer_email"),
+  customerPhone: text("customer_phone"),
+  description: text("description"),
+  status: text("status").notNull().default("active"), // active, paused, archived
+  metadata: jsonb("metadata"), // Additional project data
+  googleCalendarId: text("google_calendar_id"), // Google Calendar integration
+  googleCalendarSettings: jsonb("google_calendar_settings"), // Calendar sync settings
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertProjectSchema = createInsertSchema(projects).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertProject = z.infer<typeof insertProjectSchema>;
+export type Project = typeof projects.$inferSelect;
+
+// Project Pipelines - sales/process stages for each project
+export const projectPipelines = pgTable("project_pipelines", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  stage: text("stage").notNull(), // lead, qualified, proposal, negotiation, closed-won, closed-lost
+  order: integer("order").notNull(), // Display order
+  color: text("color"), // UI color for the stage
+  automations: jsonb("automations"), // Actions to trigger on stage entry
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertProjectPipelineSchema = createInsertSchema(projectPipelines).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertProjectPipeline = z.infer<typeof insertProjectPipelineSchema>;
+export type ProjectPipeline = typeof projectPipelines.$inferSelect;
+
+// Project Workflows - automation sequences for each project
+export const projectWorkflows = pgTable("project_workflows", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  trigger: text("trigger").notNull(), // inbound_call, outbound_call, form_submit, schedule, api_webhook
+  steps: jsonb("steps").notNull(), // Array of workflow steps
+  isActive: integer("is_active").notNull().default(1),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertProjectWorkflowSchema = createInsertSchema(projectWorkflows).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertProjectWorkflow = z.infer<typeof insertProjectWorkflowSchema>;
+export type ProjectWorkflow = typeof projectWorkflows.$inferSelect;
+
+// Project Agents - many-to-many relationship between projects and agents
+export const projectAgents = pgTable("project_agents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  agentId: varchar("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
+  role: text("role"), // primary, fallback, specialist
+  priority: integer("priority").default(0), // Higher priority agents get calls first
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertProjectAgentSchema = createInsertSchema(projectAgents).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertProjectAgent = z.infer<typeof insertProjectAgentSchema>;
+export type ProjectAgent = typeof projectAgents.$inferSelect;
+
+// Project API Keys - API keys specific to projects
+export const projectApiKeys = pgTable("project_api_keys", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  apiKeyId: varchar("api_key_id").notNull().references(() => apiKeys.id, { onDelete: "cascade" }),
+  permissions: jsonb("permissions"), // Specific permissions for this key in this project
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertProjectApiKeySchema = createInsertSchema(projectApiKeys).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertProjectApiKey = z.infer<typeof insertProjectApiKeySchema>;
+export type ProjectApiKey = typeof projectApiKeys.$inferSelect;
