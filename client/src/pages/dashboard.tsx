@@ -196,56 +196,6 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
-
-      {/* Community Templates Section */}
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-semibold">From the Community</h2>
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" className="text-xs">
-              Sort by
-            </Button>
-            <Button variant="ghost" size="sm" className="text-xs">
-              Inbound
-            </Button>
-            <Button variant="ghost" size="sm" className="text-xs">
-              Outbound
-            </Button>
-          </div>
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {communityTemplates.map((template) => (
-            <Card
-              key={template.id}
-              className="p-6 space-y-4 hover-elevate active-elevate-2 cursor-pointer"
-              data-testid={`template-card-${template.id}`}
-            >
-              <div className="space-y-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-muted">
-                  <User className="h-6 w-6 text-muted-foreground" />
-                </div>
-                <Badge
-                  variant={template.badge === "Elevate" ? "default" : "secondary"}
-                  className={template.badge === "Elevate" ? "bg-primary" : "bg-orange-500"}
-                >
-                  {template.badge}
-                </Badge>
-                <div>
-                  <h3 className="font-semibold text-base">{template.name}</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    {template.description}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                <span>♡ 0</span>
-                <span>👁 1</span>
-              </div>
-            </Card>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }
