@@ -1,4 +1,4 @@
-import { Home, Phone, Bot, BarChart3, Settings } from "lucide-react";
+import { Home, Phone, Bot, BarChart3, Settings, FolderOpen } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 
 const menuItems = [
   { title: "Dashboard", url: "/", icon: Home },
+  { title: "Projects", url: "/projects", icon: FolderOpen },
   { title: "Calls", url: "/calls", icon: Phone },
   { title: "Agents", url: "/agents", icon: Bot },
   { title: "Analytics", url: "/analytics", icon: BarChart3 },

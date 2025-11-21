@@ -16,6 +16,8 @@ import CallDetail from "@/pages/call-detail";
 import Agents from "@/pages/agents";
 import Analytics from "@/pages/analytics";
 import Settings from "@/pages/settings";
+import Projects from "@/pages/projects";
+import ProjectDetail from "@/pages/project-detail";
 
 function Router() {
   return (
@@ -24,6 +26,8 @@ function Router() {
       <Route path="/chat" component={Chat} />
       <Route path="/calls" component={CallHistory} />
       <Route path="/calls/:id" component={CallDetail} />
+      <Route path="/projects" component={Projects} />
+      <Route path="/projects/:id" component={ProjectDetail} />
       <Route path="/agents" component={Agents} />
       <Route path="/analytics" component={Analytics} />
       <Route path="/settings" component={Settings} />
