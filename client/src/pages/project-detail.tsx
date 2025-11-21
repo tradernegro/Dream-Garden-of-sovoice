@@ -1,7 +1,7 @@
 import { useParams, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { ArrowLeft, Plus, Settings, Users, Workflow, GitBranch, Calendar, MoreVertical, Edit, Trash2 } from "lucide-react";
+import { ArrowLeft, Plus, Settings, Users, Workflow, GitBranch, Calendar, MoreVertical, Edit, Trash2, Link2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -43,6 +43,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
 import type { Project, ProjectPipeline, ProjectWorkflow, ProjectAgent } from "@shared/schema";
+import GoogleIntegrationPanel from "@/components/google-integration-panel";
 
 const pipelineSchema = z.object({
   name: z.string().min(1, "Pipeline name is required"),
@@ -202,7 +203,7 @@ export default function ProjectDetailPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="grid w-full grid-cols-4 max-w-2xl">
+        <TabsList className="grid w-full grid-cols-5 max-w-3xl">
           <TabsTrigger value="overview" data-testid="tab-overview">
             <Settings className="h-4 w-4 mr-2" />
             Overview
@@ -218,6 +219,10 @@ export default function ProjectDetailPage() {
           <TabsTrigger value="agents" data-testid="tab-agents">
             <Users className="h-4 w-4 mr-2" />
             Agents
+          </TabsTrigger>
+          <TabsTrigger value="google" data-testid="tab-google">
+            <Link2 className="h-4 w-4 mr-2" />
+            Google
           </TabsTrigger>
         </TabsList>
 
@@ -401,6 +406,10 @@ export default function ProjectDetailPage() {
               ))}
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="google" className="space-y-4">
+          <GoogleIntegrationPanel project={project} />
         </TabsContent>
       </Tabs>
 
