@@ -939,6 +939,152 @@ AGENT_CREATE:
     }
   });
 
+  // ==================== PROJECT API ENDPOINTS ====================
+  
+  app.get("/api/projects", async (req: Request, res: Response) => {
+    try {
+      const projects = await storage.getProjects();
+      res.json(projects);
+    } catch (error) {
+      console.error("Failed to get projects:", error);
+      res.status(500).json({ error: "Failed to get projects" });
+    }
+  });
+
+  app.get("/api/projects/:id", async (req: Request, res: Response) => {
+    try {
+      const project = await storage.getProject(req.params.id);
+      if (!project) {
+        return res.status(404).json({ error: "Project not found" });
+      }
+      res.json(project);
+    } catch (error) {
+      console.error("Failed to get project:", error);
+      res.status(500).json({ error: "Failed to get project" });
+    }
+  });
+
+  app.post("/api/projects", async (req: Request, res: Response) => {
+    try {
+      const project = await storage.createProject(req.body);
+      res.json(project);
+    } catch (error) {
+      console.error("Failed to create project:", error);
+      res.status(500).json({ error: "Failed to create project" });
+    }
+  });
+
+  app.patch("/api/projects/:id", async (req: Request, res: Response) => {
+    try {
+      const project = await storage.updateProject(req.params.id, req.body);
+      if (!project) {
+        return res.status(404).json({ error: "Project not found" });
+      }
+      res.json(project);
+    } catch (error) {
+      console.error("Failed to update project:", error);
+      res.status(500).json({ error: "Failed to update project" });
+    }
+  });
+
+  app.delete("/api/projects/:id", async (req: Request, res: Response) => {
+    try {
+      const deleted = await storage.deleteProject(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Project not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Failed to delete project:", error);
+      res.status(500).json({ error: "Failed to delete project" });
+    }
+  });
+
+  // Project Pipeline endpoints
+  app.get("/api/projects/:projectId/pipelines", async (req: Request, res: Response) => {
+    try {
+      const pipelines = await storage.getProjectPipelines(req.params.projectId);
+      res.json(pipelines);
+    } catch (error) {
+      console.error("Failed to get pipelines:", error);
+      res.status(500).json({ error: "Failed to get pipelines" });
+    }
+  });
+
+  app.post("/api/projects/:projectId/pipelines", async (req: Request, res: Response) => {
+    try {
+      const pipeline = await storage.createProjectPipeline({
+        ...req.body,
+        projectId: req.params.projectId
+      });
+      res.json(pipeline);
+    } catch (error) {
+      console.error("Failed to create pipeline:", error);
+      res.status(500).json({ error: "Failed to create pipeline" });
+    }
+  });
+
+  // Project Workflow endpoints
+  app.get("/api/projects/:projectId/workflows", async (req: Request, res: Response) => {
+    try {
+      const workflows = await storage.getProjectWorkflows(req.params.projectId);
+      res.json(workflows);
+    } catch (error) {
+      console.error("Failed to get workflows:", error);
+      res.status(500).json({ error: "Failed to get workflows" });
+    }
+  });
+
+  app.post("/api/projects/:projectId/workflows", async (req: Request, res: Response) => {
+    try {
+      const workflow = await storage.createProjectWorkflow({
+        ...req.body,
+        projectId: req.params.projectId
+      });
+      res.json(workflow);
+    } catch (error) {
+      console.error("Failed to create workflow:", error);
+      res.status(500).json({ error: "Failed to create workflow" });
+    }
+  });
+
+  // Project Agent assignment endpoints
+  app.get("/api/projects/:projectId/agents", async (req: Request, res: Response) => {
+    try {
+      const projectAgents = await storage.getProjectAgents(req.params.projectId);
+      res.json(projectAgents);
+    } catch (error) {
+      console.error("Failed to get project agents:", error);
+      res.status(500).json({ error: "Failed to get project agents" });
+    }
+  });
+
+  app.post("/api/projects/:projectId/agents", async (req: Request, res: Response) => {
+    try {
+      const projectAgent = await storage.addAgentToProject({
+        ...req.body,
+        projectId: req.params.projectId
+      });
+      res.json(projectAgent);
+    } catch (error) {
+      console.error("Failed to add agent to project:", error);
+      res.status(500).json({ error: "Failed to add agent to project" });
+    }
+  });
+
+  app.delete("/api/projects/:projectId/agents/:agentId", async (req: Request, res: Response) => {
+    try {
+      const removed = await storage.removeAgentFromProject(req.params.projectId, req.params.agentId);
+      if (!removed) {
+        return res.status(404).json({ error: "Agent not found in project" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Failed to remove agent from project:", error);
+      res.status(500).json({ error: "Failed to remove agent from project" });
+    }
+  });
+
   // ==================== WEBSOCKET SETUP ====================
 
   const httpServer = createServer(app);

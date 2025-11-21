@@ -6,7 +6,12 @@ import {
   type Transcript, type InsertTranscript,
   type ChatMessage, type InsertChatMessage,
   type ChatSession, type InsertChatSession,
-  type ApiKey, type InsertApiKey
+  type ApiKey, type InsertApiKey,
+  type Project, type InsertProject,
+  type ProjectPipeline, type InsertProjectPipeline,
+  type ProjectWorkflow, type InsertProjectWorkflow,
+  type ProjectAgent, type InsertProjectAgent,
+  type ProjectApiKey, type InsertProjectApiKey
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -60,6 +65,35 @@ export interface IStorage {
   createApiKey(apiKey: InsertApiKey): Promise<ApiKey>;
   deleteApiKey(id: string): Promise<boolean>;
   updateApiKeyLastUsed(id: string): Promise<void>;
+  
+  // Project methods
+  getProjects(limit?: number): Promise<Project[]>;
+  getProject(id: string): Promise<Project | undefined>;
+  createProject(project: InsertProject): Promise<Project>;
+  updateProject(id: string, project: Partial<InsertProject>): Promise<Project | undefined>;
+  deleteProject(id: string): Promise<boolean>;
+  
+  // Project Pipeline methods
+  getProjectPipelines(projectId: string): Promise<ProjectPipeline[]>;
+  createProjectPipeline(pipeline: InsertProjectPipeline): Promise<ProjectPipeline>;
+  updateProjectPipeline(id: string, pipeline: Partial<InsertProjectPipeline>): Promise<ProjectPipeline | undefined>;
+  deleteProjectPipeline(id: string): Promise<boolean>;
+  
+  // Project Workflow methods
+  getProjectWorkflows(projectId: string): Promise<ProjectWorkflow[]>;
+  createProjectWorkflow(workflow: InsertProjectWorkflow): Promise<ProjectWorkflow>;
+  updateProjectWorkflow(id: string, workflow: Partial<InsertProjectWorkflow>): Promise<ProjectWorkflow | undefined>;
+  deleteProjectWorkflow(id: string): Promise<boolean>;
+  
+  // Project Agent methods
+  getProjectAgents(projectId: string): Promise<ProjectAgent[]>;
+  addAgentToProject(projectAgent: InsertProjectAgent): Promise<ProjectAgent>;
+  removeAgentFromProject(projectId: string, agentId: string): Promise<boolean>;
+  
+  // Project API Key methods
+  getProjectApiKeys(projectId: string): Promise<ProjectApiKey[]>;
+  addApiKeyToProject(projectApiKey: InsertProjectApiKey): Promise<ProjectApiKey>;
+  removeApiKeyFromProject(projectId: string, apiKeyId: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -71,6 +105,11 @@ export class MemStorage implements IStorage {
   private chatSessions: Map<string, ChatSession>;
   private chatMessages: Map<string, ChatMessage>;
   private apiKeys: Map<string, ApiKey>;
+  private projects: Map<string, Project>;
+  private projectPipelines: Map<string, ProjectPipeline>;
+  private projectWorkflows: Map<string, ProjectWorkflow>;
+  private projectAgents: Map<string, ProjectAgent>;
+  private projectApiKeys: Map<string, ProjectApiKey>;
 
   constructor() {
     this.users = new Map();
@@ -81,6 +120,11 @@ export class MemStorage implements IStorage {
     this.chatSessions = new Map();
     this.chatMessages = new Map();
     this.apiKeys = new Map();
+    this.projects = new Map();
+    this.projectPipelines = new Map();
+    this.projectWorkflows = new Map();
+    this.projectAgents = new Map();
+    this.projectApiKeys = new Map();
     
     // Default agent will be added if no system agent is loaded
     // (see loadSystemAgentsFromDatabase in index.ts)
@@ -494,6 +538,212 @@ export class MemStorage implements IStorage {
     } catch (error) {
       console.error("[MemStorage] Failed to load API keys from database:", error);
     }
+  }
+
+  // Project methods
+  async getProjects(limit?: number): Promise<Project[]> {
+    const allProjects = Array.from(this.projects.values()).sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+    return limit ? allProjects.slice(0, limit) : allProjects;
+  }
+
+  async getProject(id: string): Promise<Project | undefined> {
+    return this.projects.get(id);
+  }
+
+  async createProject(insertProject: InsertProject): Promise<Project> {
+    const id = randomUUID();
+    const project: Project = {
+      id,
+      ...insertProject,
+      status: insertProject.status ?? "active",
+      metadata: insertProject.metadata ?? null,
+      googleCalendarId: insertProject.googleCalendarId ?? null,
+      googleCalendarSettings: insertProject.googleCalendarSettings ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    
+    this.projects.set(id, project);
+    return project;
+  }
+
+  async updateProject(id: string, updateData: Partial<InsertProject>): Promise<Project | undefined> {
+    const project = this.projects.get(id);
+    if (!project) return undefined;
+    
+    const updated = {
+      ...project,
+      ...updateData,
+      updatedAt: new Date(),
+    };
+    
+    this.projects.set(id, updated);
+    return updated;
+  }
+
+  async deleteProject(id: string): Promise<boolean> {
+    // Also delete related data
+    for (const [pipelineId, pipeline] of this.projectPipelines) {
+      if (pipeline.projectId === id) {
+        this.projectPipelines.delete(pipelineId);
+      }
+    }
+    for (const [workflowId, workflow] of this.projectWorkflows) {
+      if (workflow.projectId === id) {
+        this.projectWorkflows.delete(workflowId);
+      }
+    }
+    for (const [agentId, agent] of this.projectAgents) {
+      if (agent.projectId === id) {
+        this.projectAgents.delete(agentId);
+      }
+    }
+    for (const [keyId, key] of this.projectApiKeys) {
+      if (key.projectId === id) {
+        this.projectApiKeys.delete(keyId);
+      }
+    }
+    
+    return this.projects.delete(id);
+  }
+
+  // Project Pipeline methods
+  async getProjectPipelines(projectId: string): Promise<ProjectPipeline[]> {
+    return Array.from(this.projectPipelines.values())
+      .filter(p => p.projectId === projectId)
+      .sort((a, b) => a.order - b.order);
+  }
+
+  async createProjectPipeline(insertPipeline: InsertProjectPipeline): Promise<ProjectPipeline> {
+    const id = randomUUID();
+    const pipeline: ProjectPipeline = {
+      id,
+      ...insertPipeline,
+      color: insertPipeline.color ?? null,
+      automations: insertPipeline.automations ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    
+    this.projectPipelines.set(id, pipeline);
+    return pipeline;
+  }
+
+  async updateProjectPipeline(id: string, updateData: Partial<InsertProjectPipeline>): Promise<ProjectPipeline | undefined> {
+    const pipeline = this.projectPipelines.get(id);
+    if (!pipeline) return undefined;
+    
+    const updated = {
+      ...pipeline,
+      ...updateData,
+      updatedAt: new Date(),
+    };
+    
+    this.projectPipelines.set(id, updated);
+    return updated;
+  }
+
+  async deleteProjectPipeline(id: string): Promise<boolean> {
+    return this.projectPipelines.delete(id);
+  }
+
+  // Project Workflow methods
+  async getProjectWorkflows(projectId: string): Promise<ProjectWorkflow[]> {
+    return Array.from(this.projectWorkflows.values())
+      .filter(w => w.projectId === projectId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  async createProjectWorkflow(insertWorkflow: InsertProjectWorkflow): Promise<ProjectWorkflow> {
+    const id = randomUUID();
+    const workflow: ProjectWorkflow = {
+      id,
+      ...insertWorkflow,
+      isActive: insertWorkflow.isActive ?? 1,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    
+    this.projectWorkflows.set(id, workflow);
+    return workflow;
+  }
+
+  async updateProjectWorkflow(id: string, updateData: Partial<InsertProjectWorkflow>): Promise<ProjectWorkflow | undefined> {
+    const workflow = this.projectWorkflows.get(id);
+    if (!workflow) return undefined;
+    
+    const updated = {
+      ...workflow,
+      ...updateData,
+      updatedAt: new Date(),
+    };
+    
+    this.projectWorkflows.set(id, updated);
+    return updated;
+  }
+
+  async deleteProjectWorkflow(id: string): Promise<boolean> {
+    return this.projectWorkflows.delete(id);
+  }
+
+  // Project Agent methods
+  async getProjectAgents(projectId: string): Promise<ProjectAgent[]> {
+    return Array.from(this.projectAgents.values())
+      .filter(pa => pa.projectId === projectId)
+      .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
+  }
+
+  async addAgentToProject(insertProjectAgent: InsertProjectAgent): Promise<ProjectAgent> {
+    const id = randomUUID();
+    const projectAgent: ProjectAgent = {
+      id,
+      ...insertProjectAgent,
+      role: insertProjectAgent.role ?? null,
+      priority: insertProjectAgent.priority ?? 0,
+      createdAt: new Date(),
+    };
+    
+    this.projectAgents.set(id, projectAgent);
+    return projectAgent;
+  }
+
+  async removeAgentFromProject(projectId: string, agentId: string): Promise<boolean> {
+    for (const [id, pa] of this.projectAgents) {
+      if (pa.projectId === projectId && pa.agentId === agentId) {
+        return this.projectAgents.delete(id);
+      }
+    }
+    return false;
+  }
+
+  // Project API Key methods
+  async getProjectApiKeys(projectId: string): Promise<ProjectApiKey[]> {
+    return Array.from(this.projectApiKeys.values())
+      .filter(pk => pk.projectId === projectId);
+  }
+
+  async addApiKeyToProject(insertProjectApiKey: InsertProjectApiKey): Promise<ProjectApiKey> {
+    const id = randomUUID();
+    const projectApiKey: ProjectApiKey = {
+      id,
+      ...insertProjectApiKey,
+      permissions: insertProjectApiKey.permissions ?? null,
+      createdAt: new Date(),
+    };
+    
+    this.projectApiKeys.set(id, projectApiKey);
+    return projectApiKey;
+  }
+
+  async removeApiKeyFromProject(projectId: string, apiKeyId: string): Promise<boolean> {
+    for (const [id, pk] of this.projectApiKeys) {
+      if (pk.projectId === projectId && pk.apiKeyId === apiKeyId) {
+        return this.projectApiKeys.delete(id);
+      }
+    }
+    return false;
   }
 }
 
