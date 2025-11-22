@@ -19,6 +19,7 @@ import {
 } from "@shared/schema";
 import { randomBytes, createHash } from "crypto";
 import { getTwilioClient, getTwilioFromPhoneNumber } from "./twilio-client";
+import twilio from "twilio";
 import { transcribeAudio } from "./openai-client";
 import { sendChatMessage } from "./openai-client";
 import { OpenAIRealtimeSession } from "./openai-realtime-session";
@@ -1411,7 +1412,6 @@ AGENT_CREATE:
       }
       
       // Validate credentials by attempting to connect
-      const twilio = require('twilio');
       const testClient = twilio(accountSid, authToken);
       
       try {
