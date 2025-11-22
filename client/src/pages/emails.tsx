@@ -102,7 +102,11 @@ export default function EmailManagement() {
     cc: "",
     bcc: "",
     subject: "",
-    body: ""
+    body: "",
+    replyTo: null as string | null,
+    isReply: false,
+    isForward: false,
+    originalEmailId: null as string | null
   });
 
   // Check Microsoft connection status on mount
@@ -376,8 +380,60 @@ export default function EmailManagement() {
       cc: "",
       bcc: "",
       subject: "",
-      body: ""
+      body: "",
+      replyTo: null,
+      isReply: false,
+      isForward: false,
+      originalEmailId: null
     });
+  };
+  
+  const handleReply = (email: Email) => {
+    setComposeData({
+      to: email.from,
+      cc: "",
+      bcc: "",
+      subject: `Re: ${email.subject || "(No subject)"}`,
+      body: `\n\n--- Original Message ---\nFrom: ${email.from}\nDate: ${email.receivedAt || email.sentAt}\nSubject: ${email.subject || "(No subject)"}\n\n${email.body}`,
+      replyTo: email.id,
+      isReply: true,
+      isForward: false,
+      originalEmailId: email.id
+    });
+    setIsComposeOpen(true);
+  };
+  
+  const handleReplyAll = (email: Email) => {
+    const replyToAddresses = [email.from, ...(email.to || []), ...(email.cc || [])]
+      .filter(addr => addr && !addr.includes("info@sovoice.ai"));
+    
+    setComposeData({
+      to: email.from,
+      cc: replyToAddresses.filter(addr => addr !== email.from).join(", "),
+      bcc: "",
+      subject: `Re: ${email.subject || "(No subject)"}`,
+      body: `\n\n--- Original Message ---\nFrom: ${email.from}\nDate: ${email.receivedAt || email.sentAt}\nSubject: ${email.subject || "(No subject)"}\n\n${email.body}`,
+      replyTo: email.id,
+      isReply: true,
+      isForward: false,
+      originalEmailId: email.id
+    });
+    setIsComposeOpen(true);
+  };
+  
+  const handleForward = (email: Email) => {
+    setComposeData({
+      to: "",
+      cc: "",
+      bcc: "",
+      subject: `Fwd: ${email.subject || "(No subject)"}`,
+      body: `\n\n--- Forwarded Message ---\nFrom: ${email.from}\nDate: ${email.receivedAt || email.sentAt}\nTo: ${email.to?.join(", ") || ""}\nSubject: ${email.subject || "(No subject)"}\n\n${email.body}`,
+      replyTo: null,
+      isReply: false,
+      isForward: true,
+      originalEmailId: email.id
+    });
+    setIsComposeOpen(true);
   };
 
   const handleSend = async () => {
@@ -743,10 +799,20 @@ export default function EmailManagement() {
                     >
                       <Star className={`h-4 w-4 ${selectedEmail.isStarred ? "fill-yellow-500 text-yellow-500" : ""}`} />
                     </Button>
-                    <Button variant="ghost" size="icon" data-testid="button-reply">
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      onClick={() => handleReply(selectedEmail)}
+                      data-testid="button-reply"
+                    >
                       <Reply className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" data-testid="button-forward">
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      onClick={() => handleForward(selectedEmail)}
+                      data-testid="button-forward"
+                    >
                       <Forward className="h-4 w-4" />
                     </Button>
                     <DropdownMenu>
@@ -757,23 +823,48 @@ export default function EmailManagement() {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem
+                          onClick={() => handleReplyAll(selectedEmail)}
+                          data-testid="menu-reply-all"
+                        >
+                          <Reply className="h-4 w-4 mr-2" />
+                          Allen antworten
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
                           onClick={() => moveToFolderMutation.mutate({ id: selectedEmail.id, folder: "archive" })}
                           data-testid="menu-archive"
                         >
                           <Archive className="h-4 w-4 mr-2" />
-                          Archive
+                          Archivieren
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => moveToFolderMutation.mutate({ id: selectedEmail.id, folder: "junk" })}
+                          data-testid="menu-spam"
+                        >
+                          <AlertCircle className="h-4 w-4 mr-2" />
+                          Als Spam markieren
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => deleteEmailMutation.mutate(selectedEmail.id)}
                           data-testid="menu-delete"
                         >
                           <Trash2 className="h-4 w-4 mr-2" />
-                          Delete
+                          Löschen
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem data-testid="menu-mark-unread">
+                        <DropdownMenuItem 
+                          onClick={() => markAsReadMutation.mutate({ id: selectedEmail.id, isRead: !selectedEmail.isRead })}
+                          data-testid="menu-mark-unread"
+                        >
                           <Mail className="h-4 w-4 mr-2" />
-                          Mark as unread
+                          {selectedEmail.isRead ? "Als ungelesen markieren" : "Als gelesen markieren"}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem 
+                          onClick={() => toggleStarMutation.mutate(selectedEmail.id)}
+                          data-testid="menu-star"
+                        >
+                          <Star className="h-4 w-4 mr-2" />
+                          {selectedEmail.isStarred ? "Markierung entfernen" : "Markieren"}
                         </DropdownMenuItem>
                         <DropdownMenuItem data-testid="menu-move-to">
                           <Folder className="h-4 w-4 mr-2" />
