@@ -178,7 +178,7 @@ export class OpenAIRealtimeSession {
         this.sendToOpenAI({
           type: "response.create",
           response: {
-            conversation: { id: "default" },  // INCLUDE CONVERSATION CONTEXT
+            conversation: "auto",  // FIXED: Use string value "auto" instead of object
             modalities: ["text", "audio"],
             voice: this.agent?.voice || "alloy"
           }
@@ -337,7 +337,7 @@ export class OpenAIRealtimeSession {
     const responseCreated = this.sendToOpenAI({
       type: "response.create",
       response: {
-        conversation: { id: "default" },  // ADD THIS LINE - conversation context required
+        conversation: "auto",  // FIXED: Use string value "auto" instead of object
         modalities: ["text", "audio"],
         voice: this.agent?.voice || "alloy",  // Use the agent's configured voice (e.g., "marin" for German)
         instructions: null  // Optional - can include specific instructions if needed
