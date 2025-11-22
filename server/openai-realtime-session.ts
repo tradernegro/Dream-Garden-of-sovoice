@@ -17,6 +17,7 @@ export class OpenAIRealtimeSession {
   private currentResponseId: string | null = null;
   private isAssistantSpeaking: boolean = false;
   private isCancelling: boolean = false;
+  private agent: any = null; // Store agent configuration for use in greeting
 
   constructor(config: RealtimeSessionConfig) {
     this.callId = config.callId;
@@ -38,6 +39,9 @@ export class OpenAIRealtimeSession {
     if (!agent) {
       throw new Error("No active agent found");
     }
+
+    // Store agent configuration for use in greeting
+    this.agent = agent;
 
     // Connect to OpenAI Realtime API
     const url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01";
@@ -295,6 +299,11 @@ export class OpenAIRealtimeSession {
     // Wait for OpenAI WebSocket to be ready
     await this.waitForOpenAIReady();
     
+    // Use the proper German greeting from the agent's configuration
+    const greetingText = this.agent?.language === "de" 
+      ? "Guten Tag, mein Name ist Nora von SOVOICE, die persönliche KI-Assistentin von Geschäftsführer Florian Sopa. Sie können ganz normal mit mir sprechen, wie mit einem echten Menschen. Ich verstehe Dialoge, und Sie können mich jederzeit während des Gesprächs unterbrechen – ich höre sofort auf zu sprechen."
+      : "Hello! How can I help you today?"; // Fallback for non-German agents
+    
     // Create a conversation item with the greeting
     const greetingCreated = this.sendToOpenAI({
       type: "conversation.item.create",
@@ -303,7 +312,7 @@ export class OpenAIRealtimeSession {
         role: "assistant",
         content: [{
           type: "text",
-          text: "Hello! How can I help you today?"
+          text: greetingText
         }]
       }
     }, true);
@@ -313,18 +322,21 @@ export class OpenAIRealtimeSession {
       return;
     }
     
-    // Generate the audio response for the greeting
+    // Generate the audio response for the greeting with the agent's voice configuration
     setTimeout(() => {
       const responseCreated = this.sendToOpenAI({
         type: "response.create",
         response: {
           modalities: ["text", "audio"],
-          instructions: "Say the greeting in a friendly, welcoming tone"
+          voice: this.agent?.voice || "alloy", // Use the agent's configured voice
+          instructions: this.agent?.language === "de" 
+            ? "Sprich die Begrüßung in einem freundlichen, einladenden Ton auf Deutsch"
+            : "Say the greeting in a friendly, welcoming tone"
         }
       }, true);
       
       if (responseCreated) {
-        console.log(`[Session ${this.callId}] ✅ Greeting audio response initiated`);
+        console.log(`[Session ${this.callId}] ✅ Greeting audio response initiated with voice: ${this.agent?.voice || "alloy"}`);
       } else {
         console.error(`[Session ${this.callId}] ❌ Failed to initiate greeting audio`);
       }
