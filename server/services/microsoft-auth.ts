@@ -46,7 +46,20 @@ export class MicrosoftAuthService {
       const { storage } = await import("../storage");
       const tokenData = await storage.getSetting("microsoft_token_data");
       if (tokenData && tokenData.value) {
-        const data = JSON.parse(tokenData.value as string);
+        // Handle both JSON string and object formats
+        let data: any;
+        if (typeof tokenData.value === 'string') {
+          try {
+            data = JSON.parse(tokenData.value);
+          } catch (e) {
+            // If it's not valid JSON, treat it as the data directly
+            data = tokenData.value;
+          }
+        } else {
+          // Value is already an object
+          data = tokenData.value;
+        }
+        
         this.accessToken = data.accessToken;
         this.tokenExpiry = data.tokenExpiry ? new Date(data.tokenExpiry) : null;
         this.authType = data.authType;
@@ -241,12 +254,21 @@ export class MicrosoftAuthService {
         case "drafts":
           endpoint = `${basePath}/mailFolders/drafts/messages`;
           break;
+        case "junk":
+        case "spam":
+          endpoint = `${basePath}/mailFolders/junkemail/messages`;
+          break;
         case "archive":
           endpoint = `${basePath}/mailFolders/archive/messages`;
           break;
         case "trash":
           endpoint = `${basePath}/mailFolders/deleteditems/messages`;
           break;
+        case "important":
+          // Important/flagged emails
+          endpoint = `${basePath}/messages?$filter=flag/flagStatus eq 'flagged'`;
+          break;
+        case "all":
         default:
           endpoint = `${basePath}/messages`;
       }

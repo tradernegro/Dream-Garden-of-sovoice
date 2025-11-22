@@ -70,11 +70,14 @@ import type { Email } from "@shared/schema";
 
 // Email folders
 const folders = [
-  { value: "inbox", label: "Inbox", icon: Inbox },
-  { value: "sent", label: "Sent", icon: Send },
-  { value: "drafts", label: "Drafts", icon: PenSquare },
-  { value: "archive", label: "Archive", icon: Archive },
-  { value: "trash", label: "Trash", icon: Trash2 }
+  { value: "inbox", label: "Posteingang", icon: Inbox },
+  { value: "sent", label: "Gesendet", icon: Send },
+  { value: "drafts", label: "Entwürfe", icon: PenSquare },
+  { value: "junk", label: "Spam/Junk", icon: AlertCircle },
+  { value: "archive", label: "Archiv", icon: Archive },
+  { value: "trash", label: "Papierkorb", icon: Trash2 },
+  { value: "important", label: "Wichtig", icon: Star },
+  { value: "all", label: "Alle E-Mails", icon: Mail }
 ];
 
 export default function EmailManagement() {
