@@ -6,6 +6,10 @@ SoVoice AI is an AI-powered voice call assistant platform designed to automate c
 
 ## Recent Changes (November 2025)
 
+- **Manual Token Configuration**: Implemented alternative authentication method for Microsoft Outlook
+  - Added manual access token configuration dialog since OAuth is blocked in Replit environment
+  - Users can now generate tokens from Microsoft Graph Explorer and input them directly
+  - Token and connection status persist across sessions
 - **Color Scheme Update**: Successfully updated entire application from blue to orange theme
   - Changed all CSS color variables from hue 210 (blue) to hue 30 (orange)
   - Updated primary, secondary, accent, sidebar, and chart colors in both light/dark modes
