@@ -102,9 +102,9 @@ app.use((req, res, next) => {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || '5000', 10);
-  // Remove reusePort option which can cause issues in production
+  // Start server immediately without waiting for anything
   server.listen(port, "0.0.0.0", () => {
-    log(`serving on port ${port}`);
+    log(`serving on port ${port} (${process.env.NODE_ENV || 'development'} mode)`);
     
     // Run ALL initialization in the background without blocking
     // Use process.nextTick to ensure server is fully ready

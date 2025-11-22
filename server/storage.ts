@@ -1197,5 +1197,20 @@ export class DbStorage implements IStorage {
   }
 }
 
-// Export a single instance of DbStorage for database persistence
-export const storage = new DbStorage();
+// Lazy storage initialization - create instance only when first accessed
+let _storageInstance: DbStorage | null = null;
+
+function getStorage(): DbStorage {
+  if (!_storageInstance) {
+    _storageInstance = new DbStorage();
+  }
+  return _storageInstance;
+}
+
+// Export a proxy that lazy-loads the storage instance
+export const storage = new Proxy({} as DbStorage, {
+  get(target, prop) {
+    const storageInstance = getStorage();
+    return storageInstance[prop as keyof DbStorage];
+  }
+});

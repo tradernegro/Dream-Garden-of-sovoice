@@ -30,6 +30,7 @@ import { getElevenLabsVoices } from "./elevenlabs-client";
 import { z } from "zod";
 import cors from "cors";
 import { createOAuth2Client, generateAuthUrl, exchangeCodeForTokens, getOAuth2ClientForProject, GoogleCalendarService, GmailService } from "./google-oauth";
+import { initializeSystemAgents } from "./init-system-agents";
 
 // WebSocket clients for real-time updates
 const wsClients = new Set<WebSocket>();
