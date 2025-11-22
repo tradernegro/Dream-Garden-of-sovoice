@@ -54,9 +54,21 @@ import {
   Link2,
   Shield,
   Loader2,
-  Check
+  Check,
+  Info,
+  MapPin,
+  Clock,
+  Edit2
 } from "lucide-react";
 import type { Project } from "@shared/schema";
+import { FiFlag } from 'react-icons/fi';
+import { FaFlagUsa } from 'react-icons/fa';
+import { GiSwitzerlandFlag } from 'react-icons/gi';
+import { 
+  MdFlag, 
+  MdOutlineFlag,
+  MdFlagCircle 
+} from 'react-icons/md';
 
 interface PhoneNumber {
   id: string;
@@ -89,6 +101,7 @@ export default function PhoneNumbers() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isConfigDialogOpen, setIsConfigDialogOpen] = useState(false);
   const [selectedNumber, setSelectedNumber] = useState<PhoneNumber | null>(null);
+  const [isDetailDialogOpen, setIsDetailDialogOpen] = useState(false);
   const [showAuthToken, setShowAuthToken] = useState(false);
   const [showAccountSid, setShowAccountSid] = useState(false);
   const [copiedWebhook, setCopiedWebhook] = useState<string | null>(null);
@@ -301,11 +314,154 @@ export default function PhoneNumbers() {
   };
 
   const formatPhoneNumber = (number: string) => {
-    // Format US numbers
-    if (number.startsWith("+1") && number.length === 12) {
-      return `${number.slice(0, 2)} (${number.slice(2, 5)}) ${number.slice(5, 8)}-${number.slice(8)}`;
+    // Clean the number of any non-digits except the leading +
+    const cleaned = number.replace(/[^\d+]/g, '');
+    
+    // Format US/Canada numbers (+1)
+    if (cleaned.startsWith("+1")) {
+      const digits = cleaned.slice(2); // Remove +1
+      if (digits.length === 10) {
+        return `+1 (${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+      }
+      return cleaned; // Return as-is if not 10 digits
     }
-    return number;
+    
+    // Format Swiss numbers (+41)
+    if (cleaned.startsWith("+41")) {
+      const digits = cleaned.slice(3); // Remove +41
+      if (digits.length === 9) {
+        // Format: +41 xx xxx xx xx
+        return `+41 ${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5, 7)} ${digits.slice(7)}`;
+      }
+      return cleaned;
+    }
+    
+    // Format UK numbers (+44)
+    if (cleaned.startsWith("+44")) {
+      const digits = cleaned.slice(3); // Remove +44
+      if (digits.length === 10) {
+        return `+44 ${digits.slice(0, 4)} ${digits.slice(4, 7)} ${digits.slice(7)}`;
+      }
+      return cleaned;
+    }
+    
+    // Format German numbers (+49)
+    if (cleaned.startsWith("+49")) {
+      const digits = cleaned.slice(3);
+      if (digits.length >= 10) {
+        return `+49 ${digits.slice(0, 3)} ${digits.slice(3, 7)} ${digits.slice(7)}`;
+      }
+      return cleaned;
+    }
+    
+    // Format French numbers (+33)
+    if (cleaned.startsWith("+33")) {
+      const digits = cleaned.slice(3);
+      if (digits.length === 9) {
+        return `+33 ${digits[0]} ${digits.slice(1, 3)} ${digits.slice(3, 5)} ${digits.slice(5, 7)} ${digits.slice(7)}`;
+      }
+      return cleaned;
+    }
+    
+    // For other numbers, try to format with spaces
+    if (cleaned.startsWith("+") && cleaned.length > 10) {
+      // Generic formatting: country code + groups of 3-4 digits
+      const countryCodeMatch = cleaned.match(/^\+(\d{1,3})/);
+      if (countryCodeMatch) {
+        const countryCode = countryCodeMatch[1];
+        const remaining = cleaned.slice(countryCode.length + 1);
+        const formatted = remaining.match(/.{1,4}/g)?.join(' ') || remaining;
+        return `+${countryCode} ${formatted}`;
+      }
+    }
+    
+    return cleaned;
+  };
+
+  // Get country flag component based on phone number prefix
+  const getCountryFlag = (phoneNumber: string) => {
+    const cleaned = phoneNumber.replace(/[^\d+]/g, '');
+    
+    if (cleaned.startsWith("+1")) {
+      return <span title="USA/Canada">🇺🇸</span>;
+    } else if (cleaned.startsWith("+41")) {
+      return <span title="Switzerland">🇨🇭</span>;
+    } else if (cleaned.startsWith("+44")) {
+      return <span title="United Kingdom">🇬🇧</span>;
+    } else if (cleaned.startsWith("+49")) {
+      return <span title="Germany">🇩🇪</span>;
+    } else if (cleaned.startsWith("+33")) {
+      return <span title="France">🇫🇷</span>;
+    } else if (cleaned.startsWith("+39")) {
+      return <span title="Italy">🇮🇹</span>;
+    } else if (cleaned.startsWith("+34")) {
+      return <span title="Spain">🇪🇸</span>;
+    } else if (cleaned.startsWith("+31")) {
+      return <span title="Netherlands">🇳🇱</span>;
+    } else if (cleaned.startsWith("+32")) {
+      return <span title="Belgium">🇧🇪</span>;
+    } else if (cleaned.startsWith("+43")) {
+      return <span title="Austria">🇦🇹</span>;
+    } else if (cleaned.startsWith("+46")) {
+      return <span title="Sweden">🇸🇪</span>;
+    } else if (cleaned.startsWith("+47")) {
+      return <span title="Norway">🇳🇴</span>;
+    } else if (cleaned.startsWith("+45")) {
+      return <span title="Denmark">🇩🇰</span>;
+    } else if (cleaned.startsWith("+358")) {
+      return <span title="Finland">🇫🇮</span>;
+    } else if (cleaned.startsWith("+81")) {
+      return <span title="Japan">🇯🇵</span>;
+    } else if (cleaned.startsWith("+86")) {
+      return <span title="China">🇨🇳</span>;
+    } else if (cleaned.startsWith("+91")) {
+      return <span title="India">🇮🇳</span>;
+    } else if (cleaned.startsWith("+61")) {
+      return <span title="Australia">🇦🇺</span>;
+    } else if (cleaned.startsWith("+64")) {
+      return <span title="New Zealand">🇳🇿</span>;
+    } else if (cleaned.startsWith("+27")) {
+      return <span title="South Africa">🇿🇦</span>;
+    } else if (cleaned.startsWith("+52")) {
+      return <span title="Mexico">🇲🇽</span>;
+    } else if (cleaned.startsWith("+55")) {
+      return <span title="Brazil">🇧🇷</span>;
+    } else if (cleaned.startsWith("+54")) {
+      return <span title="Argentina">🇦🇷</span>;
+    } else {
+      return <Globe className="h-4 w-4 text-muted-foreground" />;
+    }
+  };
+  
+  // Get country name based on phone number prefix
+  const getCountryName = (phoneNumber: string) => {
+    const cleaned = phoneNumber.replace(/[^\d+]/g, '');
+    
+    if (cleaned.startsWith("+1")) return "USA/Canada";
+    if (cleaned.startsWith("+41")) return "Switzerland";
+    if (cleaned.startsWith("+44")) return "United Kingdom";
+    if (cleaned.startsWith("+49")) return "Germany";
+    if (cleaned.startsWith("+33")) return "France";
+    if (cleaned.startsWith("+39")) return "Italy";
+    if (cleaned.startsWith("+34")) return "Spain";
+    if (cleaned.startsWith("+31")) return "Netherlands";
+    if (cleaned.startsWith("+32")) return "Belgium";
+    if (cleaned.startsWith("+43")) return "Austria";
+    if (cleaned.startsWith("+46")) return "Sweden";
+    if (cleaned.startsWith("+47")) return "Norway";
+    if (cleaned.startsWith("+45")) return "Denmark";
+    if (cleaned.startsWith("+358")) return "Finland";
+    if (cleaned.startsWith("+81")) return "Japan";
+    if (cleaned.startsWith("+86")) return "China";
+    if (cleaned.startsWith("+91")) return "India";
+    if (cleaned.startsWith("+61")) return "Australia";
+    if (cleaned.startsWith("+64")) return "New Zealand";
+    if (cleaned.startsWith("+27")) return "South Africa";
+    if (cleaned.startsWith("+52")) return "Mexico";
+    if (cleaned.startsWith("+55")) return "Brazil";
+    if (cleaned.startsWith("+54")) return "Argentina";
+    
+    return "Unknown";
   };
 
   const copyToClipboard = async (text: string, label: string) => {
@@ -793,8 +949,21 @@ export default function PhoneNumbers() {
               <TableBody>
                 {phoneNumbers.map((number) => (
                   <TableRow key={number.id} data-testid={`row-phone-${number.id}`}>
-                    <TableCell className="font-mono">
-                      {formatPhoneNumber(number.phoneNumber)}
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        className="font-mono hover:bg-accent/50 justify-start p-2"
+                        onClick={() => {
+                          setSelectedNumber(number);
+                          setIsDetailDialogOpen(true);
+                        }}
+                        data-testid={`button-phone-${number.id}`}
+                      >
+                        <div className="flex items-center gap-2">
+                          {getCountryFlag(number.phoneNumber)}
+                          <span className="text-sm">{formatPhoneNumber(number.phoneNumber)}</span>
+                        </div>
+                      </Button>
                     </TableCell>
                     <TableCell>{number.friendlyName || "-"}</TableCell>
                     <TableCell>
@@ -844,9 +1013,9 @@ export default function PhoneNumbers() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-1">
-                        <Globe className="h-3 w-3" />
-                        {number.region || "Unknown"}
+                      <div className="flex items-center gap-2">
+                        {getCountryFlag(number.phoneNumber)}
+                        <span className="text-sm">{getCountryName(number.phoneNumber)}</span>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -1068,6 +1237,285 @@ export default function PhoneNumbers() {
                   Save & Configure
                 </>
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Phone Number Detail Modal */}
+      <Dialog open={isDetailDialogOpen} onOpenChange={setIsDetailDialogOpen}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <Phone className="h-5 w-5 text-primary" />
+              Phone Number Details
+            </DialogTitle>
+            <DialogDescription>
+              Complete information and management options for this phone number
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedNumber && (
+            <div className="space-y-6">
+              {/* Phone Number Header */}
+              <div className="flex items-center gap-4 p-4 bg-muted/50 rounded-lg">
+                <div className="text-3xl">{getCountryFlag(selectedNumber.phoneNumber)}</div>
+                <div className="flex-1">
+                  <div className="font-mono text-xl font-semibold">
+                    {formatPhoneNumber(selectedNumber.phoneNumber)}
+                  </div>
+                  {selectedNumber.friendlyName && (
+                    <div className="text-sm text-muted-foreground mt-1">
+                      {selectedNumber.friendlyName}
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {getStatusIcon(selectedNumber.status)}
+                  <Badge 
+                    variant={selectedNumber.status === 'active' ? 'default' : 'secondary'}
+                    className="capitalize"
+                  >
+                    {selectedNumber.status}
+                  </Badge>
+                </div>
+              </div>
+
+              {/* Basic Information */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">Region</Label>
+                  <div className="flex items-center gap-2">
+                    <MapPin className="h-4 w-4 text-muted-foreground" />
+                    <span>{getCountryName(selectedNumber.phoneNumber)}</span>
+                    {selectedNumber.region && (
+                      <span className="text-sm text-muted-foreground">
+                        ({selectedNumber.region})
+                      </span>
+                    )}
+                  </div>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">Monthly Fee</Label>
+                  <div className="flex items-center gap-2">
+                    <DollarSign className="h-4 w-4 text-muted-foreground" />
+                    <span className="font-semibold">
+                      ${typeof selectedNumber.monthlyFee === 'number' 
+                        ? selectedNumber.monthlyFee.toFixed(2) 
+                        : (parseFloat(selectedNumber.monthlyFee || '0') || 0).toFixed(2)} {selectedNumber.currency || 'USD'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Capabilities */}
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Capabilities</Label>
+                <div className="flex flex-wrap gap-2">
+                  {selectedNumber.capabilities?.voice && (
+                    <Badge variant="outline">
+                      <Phone className="h-3 w-3 mr-1" />
+                      Voice Calls
+                    </Badge>
+                  )}
+                  {selectedNumber.capabilities?.sms && (
+                    <Badge variant="outline">
+                      <Smartphone className="h-3 w-3 mr-1" />
+                      SMS
+                    </Badge>
+                  )}
+                  {selectedNumber.capabilities?.mms && (
+                    <Badge variant="outline">MMS</Badge>
+                  )}
+                  {selectedNumber.capabilities?.fax && (
+                    <Badge variant="outline">Fax</Badge>
+                  )}
+                </div>
+              </div>
+
+              {/* Project Assignment */}
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Project Assignment</Label>
+                <div className="flex items-center gap-2">
+                  <FolderKanban className="h-4 w-4 text-muted-foreground" />
+                  {selectedNumber.projectId ? (
+                    <Select
+                      value={selectedNumber.projectId}
+                      onValueChange={(value) => {
+                        updateAssignmentMutation.mutate({ 
+                          id: selectedNumber.id, 
+                          projectId: value === "none" ? null : value 
+                        });
+                        setSelectedNumber({
+                          ...selectedNumber,
+                          projectId: value === "none" ? null : value
+                        });
+                      }}
+                    >
+                      <SelectTrigger className="w-[250px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Unassigned</SelectItem>
+                        {projects.map((project) => (
+                          <SelectItem key={project.id} value={project.id}>
+                            {project.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <>
+                      <Badge variant="secondary">Not assigned to any project</Badge>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          // Auto-select first project if available
+                          if (projects.length > 0) {
+                            updateAssignmentMutation.mutate({
+                              id: selectedNumber.id,
+                              projectId: projects[0].id
+                            });
+                            setSelectedNumber({
+                              ...selectedNumber,
+                              projectId: projects[0].id
+                            });
+                          }
+                        }}
+                        disabled={projects.length === 0}
+                      >
+                        Assign to Project
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Usage Statistics */}
+              <div className="space-y-3">
+                <Label className="text-sm font-semibold">Usage Statistics</Label>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <Card>
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-2">
+                        <PhoneOutgoing className="h-4 w-4 text-muted-foreground" />
+                        <div>
+                          <div className="text-2xl font-bold">{selectedNumber.totalCalls || 0}</div>
+                          <p className="text-xs text-muted-foreground">Total Calls</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  
+                  <Card>
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-2">
+                        <Clock className="h-4 w-4 text-muted-foreground" />
+                        <div>
+                          <div className="text-2xl font-bold">{selectedNumber.totalMinutes || 0}</div>
+                          <p className="text-xs text-muted-foreground">Total Minutes</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  
+                  <Card>
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-2">
+                        <Calendar className="h-4 w-4 text-muted-foreground" />
+                        <div>
+                          <div className="text-sm font-semibold">
+                            {selectedNumber.lastUsed 
+                              ? new Date(selectedNumber.lastUsed).toLocaleDateString()
+                              : "Never"}
+                          </div>
+                          <p className="text-xs text-muted-foreground">Last Used</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  
+                  <Card>
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-2">
+                        <Activity className="h-4 w-4 text-muted-foreground" />
+                        <div>
+                          <div className="text-sm font-semibold">
+                            {selectedNumber.createdAt 
+                              ? new Date(selectedNumber.createdAt).toLocaleDateString()
+                              : "Unknown"}
+                          </div>
+                          <p className="text-xs text-muted-foreground">Created</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </div>
+
+              {/* Webhook URLs */}
+              {(selectedNumber.voiceUrl || selectedNumber.smsUrl) && (
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">Configured Webhooks</Label>
+                  <div className="space-y-2 text-xs">
+                    {selectedNumber.voiceUrl && (
+                      <div className="flex items-center justify-between gap-2 p-2 bg-muted/50 rounded">
+                        <div className="flex items-center gap-2">
+                          <Phone className="h-3 w-3" />
+                          <span className="text-muted-foreground">Voice URL:</span>
+                        </div>
+                        <code className="text-xs">{selectedNumber.voiceUrl}</code>
+                      </div>
+                    )}
+                    {selectedNumber.smsUrl && (
+                      <div className="flex items-center justify-between gap-2 p-2 bg-muted/50 rounded">
+                        <div className="flex items-center gap-2">
+                          <Smartphone className="h-3 w-3" />
+                          <span className="text-muted-foreground">SMS URL:</span>
+                        </div>
+                        <code className="text-xs">{selectedNumber.smsUrl}</code>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Additional Information */}
+              <div className="border-t pt-4">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-muted-foreground">Number ID:</span>
+                    <span className="ml-2 font-mono text-xs">{selectedNumber.id}</span>
+                  </div>
+                  {selectedNumber.countryCode && (
+                    <div>
+                      <span className="text-muted-foreground">Country Code:</span>
+                      <span className="ml-2">{selectedNumber.countryCode}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDetailDialogOpen(false)}>
+              Close
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (selectedNumber) {
+                  deleteNumberMutation.mutate(selectedNumber.id);
+                  setIsDetailDialogOpen(false);
+                }
+              }}
+              disabled={deleteNumberMutation.isPending}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete Number
             </Button>
           </DialogFooter>
         </DialogContent>
