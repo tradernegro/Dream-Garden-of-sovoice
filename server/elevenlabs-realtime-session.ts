@@ -90,7 +90,28 @@ export class ElevenLabsRealtimeSession {
       content: greeting,
     });
     
-    await this.synthesizeAndSendAudio(greeting);
+    // Wait for WebSocket to be ready with retries
+    await this.waitForWebSocketReady();
+    
+    // Pass isGreeting=true to enable special handling
+    await this.synthesizeAndSendAudio(greeting, true);
+  }
+  
+  private async waitForWebSocketReady(maxRetries = 10, retryDelay = 100): Promise<void> {
+    for (let i = 0; i < maxRetries; i++) {
+      if (this.twilioWs.readyState === WebSocket.OPEN && this.streamSid) {
+        console.log(`[ElevenLabs Session ${this.callId}] WebSocket is ready after ${i} retries`);
+        return;
+      }
+      
+      if (i === 0) {
+        console.log(`[ElevenLabs Session ${this.callId}] Waiting for WebSocket to be ready... (state: ${this.twilioWs.readyState}, streamSid: ${this.streamSid})`);
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, retryDelay));
+    }
+    
+    console.error(`[ElevenLabs Session ${this.callId}] WebSocket did not become ready after ${maxRetries} retries`);
   }
 
   async handleTwilioMessage(message: any) {
@@ -285,9 +306,9 @@ export class ElevenLabsRealtimeSession {
     }
   }
 
-  private async synthesizeAndSendAudio(text: string) {
+  private async synthesizeAndSendAudio(text: string, isGreeting = false) {
     try {
-      console.log(`[ElevenLabs Session ${this.callId}] Generating speech for: "${text.substring(0, 50)}..."`);
+      console.log(`[ElevenLabs Session ${this.callId}] Generating speech for: "${text.substring(0, 50)}..."${isGreeting ? ' (GREETING)' : ''}`);
       
       // Reset interrupt flag before starting
       this.shouldInterrupt = false;
@@ -309,8 +330,8 @@ export class ElevenLabsRealtimeSession {
         const ulawChunk = await this.convertMp3ToULaw(audioChunk);
         console.log(`[ElevenLabs Session ${this.callId}] Converted to μ-law, size: ${ulawChunk.length} bytes`);
         
-        // Send to Twilio
-        this.sendAudioToTwilio(ulawChunk);
+        // Send to Twilio with greeting flag
+        this.sendAudioToTwilio(ulawChunk, isGreeting);
         console.log(`[ElevenLabs Session ${this.callId}] Sent chunk ${chunkCount} to Twilio`);
       }
 
@@ -414,9 +435,25 @@ export class ElevenLabsRealtimeSession {
     console.log(`[ElevenLabs Session ${this.callId}] 🧹 Cleared Twilio audio buffer`);
   }
 
-  private sendAudioToTwilio(audioBuffer: Buffer) {
-    if (!this.streamSid || this.twilioWs.readyState !== WebSocket.OPEN) {
-      console.warn(`[ElevenLabs Session ${this.callId}] Cannot send audio - streamSid: ${this.streamSid}, WebSocket ready: ${this.twilioWs.readyState === WebSocket.OPEN}`);
+  private sendAudioToTwilio(audioBuffer: Buffer, isGreeting = false) {
+    if (!this.streamSid) {
+      console.warn(`[ElevenLabs Session ${this.callId}] Cannot send audio - no streamSid yet`);
+      return;
+    }
+    
+    if (this.twilioWs.readyState !== WebSocket.OPEN) {
+      const stateNames: { [key: number]: string } = {
+        0: 'CONNECTING',
+        1: 'OPEN',
+        2: 'CLOSING',
+        3: 'CLOSED'
+      };
+      console.warn(`[ElevenLabs Session ${this.callId}] Cannot send audio - WebSocket state is ${stateNames[this.twilioWs.readyState] || this.twilioWs.readyState} (not OPEN)`);
+      
+      if (isGreeting && this.twilioWs.readyState === WebSocket.CONNECTING) {
+        console.log(`[ElevenLabs Session ${this.callId}] WebSocket still connecting for greeting, waiting...`);
+        setTimeout(() => this.sendAudioToTwilio(audioBuffer, isGreeting), 50);
+      }
       return;
     }
 
@@ -430,7 +467,14 @@ export class ElevenLabsRealtimeSession {
       },
     };
 
-    this.twilioWs.send(JSON.stringify(mediaMessage));
+    try {
+      this.twilioWs.send(JSON.stringify(mediaMessage));
+      if (isGreeting) {
+        console.log(`[ElevenLabs Session ${this.callId}] ✅ Successfully sent greeting audio to Twilio`);
+      }
+    } catch (error) {
+      console.error(`[ElevenLabs Session ${this.callId}] Error sending audio to Twilio:`, error);
+    }
   }
 
   private cleanup() {

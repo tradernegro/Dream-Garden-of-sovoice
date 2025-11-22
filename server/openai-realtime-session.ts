@@ -101,7 +101,9 @@ export class OpenAIRealtimeSession {
         
         // Send initial greeting when stream is ready
         // Agent speaks first on all calls (inbound and outbound)
-        this.sendInitialGreeting();
+        this.sendInitialGreeting().catch((error) => {
+          console.error(`[Session ${this.callId}] Failed to send initial greeting:`, error);
+        });
         break;
 
       case "media":
@@ -287,11 +289,14 @@ export class OpenAIRealtimeSession {
     }
   }
 
-  private sendInitialGreeting() {
-    console.log(`[Session ${this.callId}] Sending initial greeting - agent speaks first`);
+  private async sendInitialGreeting() {
+    console.log(`[Session ${this.callId}] 🎯 Preparing to send initial greeting - agent speaks first`);
+    
+    // Wait for OpenAI WebSocket to be ready
+    await this.waitForOpenAIReady();
     
     // Create a conversation item with the greeting
-    this.sendToOpenAI({
+    const greetingCreated = this.sendToOpenAI({
       type: "conversation.item.create",
       item: {
         type: "message",
@@ -301,29 +306,107 @@ export class OpenAIRealtimeSession {
           text: "Hello! How can I help you today?"
         }]
       }
-    });
+    }, true);
+    
+    if (!greetingCreated) {
+      console.error(`[Session ${this.callId}] ❌ Failed to create greeting item`);
+      return;
+    }
     
     // Generate the audio response for the greeting
     setTimeout(() => {
-      this.sendToOpenAI({
+      const responseCreated = this.sendToOpenAI({
         type: "response.create",
         response: {
           modalities: ["audio"],
           instructions: "Say the greeting in a friendly, welcoming tone"
         }
-      });
+      }, true);
+      
+      if (responseCreated) {
+        console.log(`[Session ${this.callId}] ✅ Greeting audio response initiated`);
+      } else {
+        console.error(`[Session ${this.callId}] ❌ Failed to initiate greeting audio`);
+      }
     }, 100); // Small delay to ensure the item is created first
   }
 
-  private sendToOpenAI(message: any) {
-    if (this.openaiWs && this.openaiWs.readyState === WebSocket.OPEN) {
+  private async waitForOpenAIReady(maxRetries = 10, retryDelay = 100): Promise<void> {
+    for (let i = 0; i < maxRetries; i++) {
+      if (this.openaiWs && this.openaiWs.readyState === WebSocket.OPEN) {
+        console.log(`[Session ${this.callId}] ✅ OpenAI WebSocket ready after ${i} retries`);
+        return;
+      }
+      
+      if (i === 0) {
+        const stateNames: { [key: number]: string } = {
+          0: 'CONNECTING',
+          1: 'OPEN',
+          2: 'CLOSING',
+          3: 'CLOSED'
+        };
+        const state = this.openaiWs ? this.openaiWs.readyState : -1;
+        console.log(`[Session ${this.callId}] ⏳ Waiting for OpenAI WebSocket... (state: ${stateNames[state] || state})`);
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, retryDelay));
+    }
+    
+    console.error(`[Session ${this.callId}] ❌ OpenAI WebSocket not ready after ${maxRetries} retries`);
+  }
+
+  private sendToOpenAI(message: any, isGreeting = false): boolean {
+    if (!this.openaiWs) {
+      console.error(`[Session ${this.callId}] Cannot send to OpenAI - WebSocket not initialized`);
+      return false;
+    }
+    
+    if (this.openaiWs.readyState !== WebSocket.OPEN) {
+      const stateNames: { [key: number]: string } = {
+        0: 'CONNECTING',
+        1: 'OPEN',
+        2: 'CLOSING',
+        3: 'CLOSED'
+      };
+      console.error(`[Session ${this.callId}] Cannot send to OpenAI - WebSocket state is ${stateNames[this.openaiWs.readyState] || this.openaiWs.readyState}${isGreeting ? ' (greeting)' : ''}`);
+      return false;
+    }
+    
+    try {
       this.openaiWs.send(JSON.stringify(message));
+      if (isGreeting) {
+        console.log(`[Session ${this.callId}] 📤 Sent greeting message to OpenAI: ${message.type}`);
+      }
+      return true;
+    } catch (error) {
+      console.error(`[Session ${this.callId}] Error sending to OpenAI:`, error);
+      return false;
     }
   }
 
-  private sendToTwilio(message: any) {
-    if (this.twilioWs && this.twilioWs.readyState === WebSocket.OPEN) {
+  private sendToTwilio(message: any): boolean {
+    if (!this.twilioWs) {
+      console.error(`[Session ${this.callId}] Cannot send to Twilio - WebSocket not initialized`);
+      return false;
+    }
+    
+    if (this.twilioWs.readyState !== WebSocket.OPEN) {
+      const stateNames: { [key: number]: string } = {
+        0: 'CONNECTING',
+        1: 'OPEN',
+        2: 'CLOSING',
+        3: 'CLOSED'
+      };
+      console.error(`[Session ${this.callId}] Cannot send to Twilio - WebSocket state is ${stateNames[this.twilioWs.readyState] || this.twilioWs.readyState}, streamSid: ${this.streamSid}`);
+      return false;
+    }
+    
+    try {
       this.twilioWs.send(JSON.stringify(message));
+      return true;
+    } catch (error) {
+      console.error(`[Session ${this.callId}] Error sending to Twilio:`, error);
+      return false;
     }
   }
 
