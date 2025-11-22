@@ -75,6 +75,7 @@ export const phoneNumbers = pgTable("phone_numbers", {
   phoneNumber: text("phone_number").notNull().unique(),
   friendlyName: text("friendly_name"),
   projectId: varchar("project_id").references(() => projects.id, { onDelete: "set null" }),
+  agentId: varchar("agent_id").references(() => agents.id, { onDelete: "set null" }), // Agent for inbound calls
   capabilities: jsonb("capabilities").$type<{
     voice: boolean;
     sms: boolean;
@@ -91,6 +92,26 @@ export const phoneNumbers = pgTable("phone_numbers", {
   lastUsed: timestamp("last_used"),
   totalCalls: integer("total_calls").default(0),
   totalMinutes: integer("total_minutes").default(0),
+  // Enhanced metadata for multi-voice platform
+  metadata: jsonb("metadata").$type<{
+    city?: string;
+    state?: string;
+    country?: string;
+    timezone?: string;
+    carrier?: string;
+    numberType?: string; // local, toll-free, mobile, etc.
+    supportedLanguages?: string[];
+    businessHours?: {
+      start: string;
+      end: string;
+      timezone: string;
+      days: string[];
+    };
+    callRecording?: boolean;
+    voicemail?: boolean;
+    callTransfer?: boolean;
+    ivr?: boolean;
+  }>().default({}),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
