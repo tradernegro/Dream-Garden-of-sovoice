@@ -317,7 +317,7 @@ export class OpenAIRealtimeSession {
         role: "user",
         content: [
           {
-            type: "text",
+            type: "input_text",
             text: userMessage
           }
         ]
