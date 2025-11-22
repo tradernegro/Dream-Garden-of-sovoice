@@ -172,13 +172,16 @@ export class OpenAIRealtimeSession {
         break;
 
       case "input_audio_buffer.speech_stopped":
-        console.log(`[Session ${this.callId}] User stopped speaking - committing buffer and creating response`);
-        // Explicitly commit the buffer and create a response
+        console.log(`[Session ${this.callId}] User stopped speaking - creating response`);
+        // REMOVED THE MANUAL COMMIT - server VAD handles it automatically
+        // Just send response.create with conversation context:
         this.sendToOpenAI({
-          type: "input_audio_buffer.commit"
-        });
-        this.sendToOpenAI({
-          type: "response.create"
+          type: "response.create",
+          response: {
+            conversation: { id: "default" },  // INCLUDE CONVERSATION CONTEXT
+            modalities: ["text", "audio"],
+            voice: this.agent?.voice || "alloy"
+          }
         });
         break;
 
@@ -334,8 +337,10 @@ export class OpenAIRealtimeSession {
     const responseCreated = this.sendToOpenAI({
       type: "response.create",
       response: {
+        conversation: { id: "default" },  // ADD THIS LINE - conversation context required
         modalities: ["text", "audio"],
-        voice: this.agent?.voice || "alloy" // Use the agent's configured voice (e.g., "marin" for German)
+        voice: this.agent?.voice || "alloy",  // Use the agent's configured voice (e.g., "marin" for German)
+        instructions: null  // Optional - can include specific instructions if needed
       }
     }, true);
     
