@@ -304,14 +304,38 @@ export class OpenAIRealtimeSession {
       ? "Guten Tag, mein Name ist Nora von SOVOICE, die persönliche KI-Assistentin von Geschäftsführer Florian Sopa. Sie können ganz normal mit mir sprechen, wie mit einem echten Menschen. Ich verstehe Dialoge, und Sie können mich jederzeit während des Gesprächs unterbrechen – ich höre sofort auf zu sprechen."
       : "Hello! How can I help you today?"; // Fallback for non-German agents
     
-    // Send response.create directly with the greeting text in the instructions
-    // This ensures OpenAI generates audio for the greeting
+    // Step 1: Create a user message asking the assistant to speak the greeting
+    // This is required to trigger audio generation in OpenAI
+    const userMessage = this.agent?.language === "de"
+      ? `Bitte begrüße den Anrufer mit: "${greetingText}"`
+      : `Please greet the caller with: "${greetingText}"`;
+    
+    const userMessageCreated = this.sendToOpenAI({
+      type: "conversation.item.create",
+      item: {
+        type: "message",
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: userMessage
+          }
+        ]
+      }
+    }, true);
+    
+    if (!userMessageCreated) {
+      console.error(`[Session ${this.callId}] ❌ Failed to create user message for greeting`);
+      return;
+    }
+    
+    // Step 2: Send response.create to generate the audio response
+    // The voice configuration is still used here
     const responseCreated = this.sendToOpenAI({
       type: "response.create",
       response: {
         modalities: ["text", "audio"],
-        voice: this.agent?.voice || "alloy", // Use the agent's configured voice (e.g., "marin" for German)
-        instructions: greetingText // Send the greeting text directly as instructions
+        voice: this.agent?.voice || "alloy" // Use the agent's configured voice (e.g., "marin" for German)
       }
     }, true);
     
