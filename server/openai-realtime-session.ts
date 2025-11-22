@@ -307,45 +307,20 @@ export class OpenAIRealtimeSession {
       ? "Guten Tag, mein Name ist Nora von SOVOICE, die persönliche KI-Assistentin von Geschäftsführer Florian Sopa. Sie können ganz normal mit mir sprechen, wie mit einem echten Menschen. Ich verstehe Dialoge, und Sie können mich jederzeit während des Gesprächs unterbrechen – ich höre sofort auf zu sprechen."
       : "Hello! How can I help you today?"; // Fallback for non-German agents
     
-    // Step 1: Create a user message asking the assistant to speak the greeting
-    // This is required to trigger audio generation in OpenAI
-    const userMessage = this.agent?.language === "de"
-      ? `Bitte begrüße den Anrufer mit: "${greetingText}"`
-      : `Please greet the caller with: "${greetingText}"`;
-    
-    const userMessageCreated = this.sendToOpenAI({
-      type: "conversation.item.create",
-      item: {
-        type: "message",
-        role: "user",
-        content: [
-          {
-            type: "input_text",
-            text: userMessage
-          }
-        ]
-      }
-    }, true);
-    
-    if (!userMessageCreated) {
-      console.error(`[Session ${this.callId}] ❌ Failed to create user message for greeting`);
-      return;
-    }
-    
-    // Step 2: Send response.create to generate the audio response
-    // The voice configuration is still used here
+    // Send response.create with the greeting text in instructions
+    // This tells OpenAI exactly what to speak
     const responseCreated = this.sendToOpenAI({
       type: "response.create",
       response: {
-        conversation: "auto",  // FIXED: Use string value "auto" instead of object
+        conversation: "auto",
         modalities: ["text", "audio"],
         voice: this.agent?.voice || "alloy",  // Use the agent's configured voice (e.g., "marin" for German)
-        instructions: null  // Optional - can include specific instructions if needed
+        instructions: greetingText  // Pass the actual greeting text here
       }
     }, true);
     
     if (responseCreated) {
-      console.log(`[Session ${this.callId}] ✅ Greeting audio response initiated with voice: ${this.agent?.voice || "alloy"}`);
+      console.log(`[Session ${this.callId}] ✅ Greeting audio response initiated with voice: ${this.agent?.voice || "alloy"} and instructions: ${greetingText}`);
     } else {
       console.error(`[Session ${this.callId}] ❌ Failed to initiate greeting audio`);
     }
