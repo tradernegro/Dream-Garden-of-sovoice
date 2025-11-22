@@ -502,16 +502,15 @@ export default function EmailManagement() {
                     className="w-full gap-1"
                     onClick={async () => {
                       try {
-                        const response = await apiRequest('/api/microsoft/app-auth', 'POST', {
+                        await apiRequest('/api/microsoft/app-auth', 'POST', {
                           targetMailbox: 'info@sovoice.ai'
                         });
-                        if (response.success) {
-                          toast({
-                            title: "Authentication Successful",
-                            description: `Connected to ${response.mailbox} using application permissions`,
-                          });
-                          await refetch();
-                        }
+                        toast({
+                          title: "Authentication Successful",
+                          description: `Connected to info@sovoice.ai using application permissions`,
+                        });
+                        await refetch();
+                        setTimeout(() => window.location.reload(), 1000);
                       } catch (error) {
                         toast({
                           title: "Authentication Failed",
