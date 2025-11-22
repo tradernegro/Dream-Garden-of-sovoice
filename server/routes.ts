@@ -1370,6 +1370,142 @@ AGENT_CREATE:
     }
   });
 
+  // ==================== TWILIO CONFIGURATION API ENDPOINTS ====================
+  
+  // Get Twilio configuration status (without exposing actual values)
+  app.get("/api/twilio/config", async (_: Request, res: Response) => {
+    try {
+      const hasAccountSid = !!process.env.TWILIO_ACCOUNT_SID;
+      const hasAuthToken = !!process.env.TWILIO_AUTH_TOKEN;
+      const phoneNumber = process.env.TWILIO_PHONE_NUMBER || '';
+      
+      // Get webhook URLs
+      const domain = process.env.REPLIT_DEV_DOMAIN || process.env.REPLIT_DOMAINS?.split(',')[0];
+      const baseUrl = domain ? `https://${domain}` : '';
+      
+      res.json({
+        configured: hasAccountSid && hasAuthToken && !!phoneNumber,
+        hasAccountSid,
+        hasAuthToken,
+        phoneNumber: phoneNumber ? phoneNumber.replace(/(\d{3})\d+(\d{4})/, '$1****$2') : '', // Mask middle digits
+        fullPhoneNumber: phoneNumber, // Send full number for UI display
+        webhookUrls: {
+          voice: `${baseUrl}/api/twilio/voice`,
+          status: `${baseUrl}/api/twilio/status`,
+          stream: `wss://${domain}/api/twilio/stream`
+        }
+      });
+    } catch (error) {
+      console.error("Failed to get Twilio config:", error);
+      res.status(500).json({ error: "Failed to get Twilio configuration" });
+    }
+  });
+  
+  // Update Twilio configuration and setup webhooks
+  app.post("/api/twilio/config", async (req: Request, res: Response) => {
+    try {
+      const { accountSid, authToken, phoneNumber } = req.body;
+      
+      if (!accountSid || !authToken || !phoneNumber) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+      
+      // Validate credentials by attempting to connect
+      const twilio = require('twilio');
+      const testClient = twilio(accountSid, authToken);
+      
+      try {
+        // Test the credentials by fetching account info
+        await testClient.api.accounts(accountSid).fetch();
+      } catch (error) {
+        console.error("Invalid Twilio credentials:", error);
+        return res.status(400).json({ error: "Invalid Twilio credentials. Please check your Account SID and Auth Token." });
+      }
+      
+      // Get the domain for webhook URLs
+      const domain = process.env.REPLIT_DEV_DOMAIN || process.env.REPLIT_DOMAINS?.split(',')[0];
+      if (!domain) {
+        return res.status(500).json({ error: "Could not determine application domain" });
+      }
+      
+      const baseUrl = `https://${domain}`;
+      const voiceUrl = `${baseUrl}/api/twilio/voice`;
+      const statusUrl = `${baseUrl}/api/twilio/status`;
+      
+      // Configure webhooks for the phone number
+      try {
+        const phoneNumbers = await testClient.incomingPhoneNumbers.list({
+          phoneNumber: phoneNumber
+        });
+        
+        if (phoneNumbers.length === 0) {
+          return res.status(400).json({ error: `Phone number ${phoneNumber} not found in your Twilio account` });
+        }
+        
+        const phoneResource = phoneNumbers[0];
+        
+        // Update the phone number configuration
+        await testClient.incomingPhoneNumbers(phoneResource.sid).update({
+          voiceUrl: voiceUrl,
+          voiceMethod: 'POST',
+          statusCallback: statusUrl,
+          statusCallbackMethod: 'POST',
+          voiceFallbackUrl: voiceUrl,
+          voiceFallbackMethod: 'POST'
+        });
+        
+        // Update environment variables using Node.js process.env
+        // Note: In production, these should be stored securely
+        process.env.TWILIO_ACCOUNT_SID = accountSid;
+        process.env.TWILIO_AUTH_TOKEN = authToken;
+        process.env.TWILIO_PHONE_NUMBER = phoneNumber;
+        
+        // Add or update the phone number in our database
+        const existingNumbers = await storage.getPhoneNumbers();
+        const existingNumber = existingNumbers.find(n => n.phoneNumber === phoneNumber);
+        
+        if (!existingNumber) {
+          await storage.createPhoneNumber({
+            phoneNumber: phoneNumber,
+            friendlyName: phoneResource.friendlyName || 'Twilio Main Line',
+            status: 'active',
+            monthlyFee: '1.00',
+            voiceEnabled: phoneResource.capabilities?.voice || true,
+            smsEnabled: phoneResource.capabilities?.sms || false,
+            mmsEnabled: phoneResource.capabilities?.mms || false,
+            faxEnabled: phoneResource.capabilities?.fax || false,
+            metadata: {
+              twilioSid: phoneResource.sid,
+              country: phoneResource.country,
+              city: phoneResource.locality,
+              state: phoneResource.region
+            }
+          });
+          
+          // Broadcast the new phone number
+          const newNumber = await storage.getPhoneNumbers();
+          broadcastToClients("phoneNumber:created", newNumber[newNumber.length - 1]);
+        }
+        
+        res.json({
+          success: true,
+          message: "Twilio configuration updated and webhooks configured successfully",
+          webhookUrls: {
+            voice: voiceUrl,
+            status: statusUrl
+          },
+          phoneNumber: phoneNumber
+        });
+      } catch (error) {
+        console.error("Failed to configure webhooks:", error);
+        return res.status(500).json({ error: "Failed to configure Twilio webhooks. Please check your phone number." });
+      }
+    } catch (error) {
+      console.error("Failed to update Twilio config:", error);
+      res.status(500).json({ error: "Failed to update Twilio configuration" });
+    }
+  });
+
   // ==================== PHONE NUMBER API ENDPOINTS ====================
   
   // Get all phone numbers
