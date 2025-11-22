@@ -77,6 +77,12 @@ export default function EmailManagement() {
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [isComposeOpen, setIsComposeOpen] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<{
+    connected: boolean;
+    email: string | null;
+    tokenAcquired: string | null;
+  }>({ connected: false, email: null, tokenAcquired: null });
   const [composeData, setComposeData] = useState({
     to: "",
     cc: "",
@@ -84,6 +90,87 @@ export default function EmailManagement() {
     subject: "",
     body: ""
   });
+
+  // Check Microsoft connection status on mount
+  useEffect(() => {
+    checkConnectionStatus();
+    // Check for connection callback
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("connected") === "true") {
+      toast({
+        title: "Connected Successfully",
+        description: "Your Microsoft Outlook account has been connected.",
+      });
+      syncEmails();
+      // Clean up URL
+      window.history.replaceState({}, document.title, "/emails");
+    } else if (params.get("error") === "auth_failed") {
+      toast({
+        title: "Connection Failed",
+        description: "Failed to connect to Microsoft Outlook. Please try again.",
+        variant: "destructive",
+      });
+      // Clean up URL
+      window.history.replaceState({}, document.title, "/emails");
+    }
+  }, []);
+
+  const checkConnectionStatus = async () => {
+    try {
+      const response = await fetch("/api/microsoft/status");
+      if (response.ok) {
+        const status = await response.json();
+        setConnectionStatus(status);
+      }
+    } catch (error) {
+      console.error("Failed to check connection status:", error);
+    }
+  };
+
+  const connectToMicrosoft = async () => {
+    setIsConnecting(true);
+    try {
+      const response = await fetch("/api/microsoft/auth-url");
+      if (response.ok) {
+        const { authUrl } = await response.json();
+        window.location.href = authUrl;
+      } else {
+        throw new Error("Failed to get authorization URL");
+      }
+    } catch (error) {
+      console.error("Failed to connect:", error);
+      toast({
+        title: "Connection Error",
+        description: "Failed to initiate Microsoft connection. Please try again.",
+        variant: "destructive",
+      });
+      setIsConnecting(false);
+    }
+  };
+
+  const syncEmails = async () => {
+    try {
+      const response = await apiRequest("POST", "/api/microsoft/sync", {
+        folder: selectedFolder,
+        limit: 100
+      });
+      const result = await response.json();
+      
+      toast({
+        title: "Sync Complete",
+        description: `Synced ${result.syncedCount} new emails from Outlook`,
+      });
+      
+      refetch();
+    } catch (error) {
+      console.error("Failed to sync emails:", error);
+      toast({
+        title: "Sync Failed",
+        description: "Failed to sync emails from Outlook",
+        variant: "destructive",
+      });
+    }
+  };
 
   // Fetch emails
   const { data: emails = [], isLoading, refetch } = useQuery<Email[]>({
@@ -201,16 +288,46 @@ export default function EmailManagement() {
     });
   };
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const emailData = {
       ...composeData,
       to: composeData.to.split(",").map(e => e.trim()),
       cc: composeData.cc ? composeData.cc.split(",").map(e => e.trim()) : [],
       bcc: composeData.bcc ? composeData.bcc.split(",").map(e => e.trim()) : [],
-      status: "sent",
-      folder: "sent"
     };
-    createEmailMutation.mutate(emailData);
+
+    // If connected to Microsoft, send via Outlook
+    if (connectionStatus.connected) {
+      try {
+        const response = await apiRequest("POST", "/api/microsoft/send", {
+          ...emailData,
+          isHtml: false
+        });
+        
+        if (response.ok) {
+          toast({
+            title: "Success",
+            description: "Email sent via Outlook",
+          });
+          setIsComposeOpen(false);
+          resetCompose();
+          refetch();
+        }
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: "Failed to send email via Outlook",
+          variant: "destructive",
+        });
+      }
+    } else {
+      // Use local storage
+      createEmailMutation.mutate({
+        ...emailData,
+        status: "sent",
+        folder: "sent"
+      });
+    }
   };
 
   const handleSaveDraft = () => {
@@ -282,24 +399,67 @@ export default function EmailManagement() {
           </h3>
           <Card className="p-3">
             <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <Mail className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium">info@sovoice.ai</span>
-              </div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Check className="h-3 w-3 text-green-500" />
-                Connected to Microsoft Outlook
-              </div>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="w-full gap-1"
-                onClick={() => window.open("https://outlook.live.com/mail/0/", "_blank")}
-                data-testid="button-open-outlook"
-              >
-                <ExternalLink className="h-3 w-3" />
-                Open in Outlook
-              </Button>
+              {connectionStatus.connected ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <Mail className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">{connectionStatus.email || "info@sovoice.ai"}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Check className="h-3 w-3 text-green-500" />
+                    Connected to Microsoft Outlook
+                  </div>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="w-full gap-1"
+                    onClick={() => window.open("https://outlook.live.com/mail/0/", "_blank")}
+                    data-testid="button-open-outlook"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    Open in Outlook
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="w-full gap-1"
+                    onClick={syncEmails}
+                    data-testid="button-sync"
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                    Sync Emails
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 text-yellow-500" />
+                    <span className="text-sm font-medium">Not Connected</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Connect your Microsoft account to sync real emails
+                  </p>
+                  <Button 
+                    className="w-full gap-2"
+                    size="sm"
+                    onClick={connectToMicrosoft}
+                    disabled={isConnecting}
+                    data-testid="button-connect-microsoft"
+                  >
+                    {isConnecting ? (
+                      <>
+                        <RefreshCw className="h-3 w-3 animate-spin" />
+                        Connecting...
+                      </>
+                    ) : (
+                      <>
+                        <Mail className="h-3 w-3" />
+                        Connect Microsoft Account
+                      </>
+                    )}
+                  </Button>
+                </>
+              )}
             </div>
           </Card>
 

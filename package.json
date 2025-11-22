@@ -12,10 +12,12 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.69.0",
+    "@azure/msal-node": "^3.8.3",
     "@elevenlabs/elevenlabs-js": "^2.24.1",
     "@google-cloud/local-auth": "^3.0.1",
     "@hookform/resolvers": "^3.10.0",
     "@jridgewell/trace-mapping": "^0.3.25",
+    "@microsoft/microsoft-graph-client": "^3.0.7",
     "@neondatabase/serverless": "^0.10.4",
     "@radix-ui/react-accordion": "^1.2.4",
     "@radix-ui/react-alert-dialog": "^1.1.7",

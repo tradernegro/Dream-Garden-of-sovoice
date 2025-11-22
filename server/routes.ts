@@ -2,6 +2,8 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
+import { db } from "./db";
+import { eq } from "drizzle-orm";
 import { 
   insertCallSchema, 
   updateCallSchema, 
@@ -12,6 +14,7 @@ import {
   updateChatSessionSchema,
   insertApiKeySchema,
   insertPhoneNumberSchema,
+  emails,
   type Call, 
   type Agent,
   type ChatSession,
@@ -1606,6 +1609,148 @@ AGENT_CREATE:
     }
   });
 
+  // ==================== MICROSOFT OAUTH ENDPOINTS ====================
+  
+  // Get Microsoft auth URL
+  app.get("/api/microsoft/auth-url", async (req: Request, res: Response) => {
+    try {
+      const { microsoftAuth } = await import("./services/microsoft-auth");
+      const domain = process.env.REPLIT_DEV_DOMAIN || process.env.REPLIT_DOMAINS?.split(',')[0] || 'localhost:5000';
+      const protocol = domain.includes('localhost') ? 'http' : 'https';
+      const redirectUri = `${protocol}://${domain}/api/microsoft/callback`;
+      
+      const authUrl = await microsoftAuth.getAuthorizationUrl(redirectUri);
+      res.json({ authUrl });
+    } catch (error) {
+      console.error("Failed to get auth URL:", error);
+      res.status(500).json({ error: "Failed to generate authorization URL" });
+    }
+  });
+  
+  // Microsoft OAuth callback
+  app.get("/api/microsoft/callback", async (req: Request, res: Response) => {
+    try {
+      const { code } = req.query;
+      if (!code || typeof code !== 'string') {
+        return res.status(400).send("Authorization code missing");
+      }
+      
+      const { microsoftAuth } = await import("./services/microsoft-auth");
+      const domain = process.env.REPLIT_DEV_DOMAIN || process.env.REPLIT_DOMAINS?.split(',')[0] || 'localhost:5000';
+      const protocol = domain.includes('localhost') ? 'http' : 'https';
+      const redirectUri = `${protocol}://${domain}/api/microsoft/callback`;
+      
+      const accessToken = await microsoftAuth.acquireTokenByCode(code, redirectUri);
+      
+      // Store the connection status
+      await storage.setSetting("microsoft_connected", true);
+      await storage.setSetting("microsoft_token_acquired", new Date().toISOString());
+      
+      // Get user profile
+      const profile = await microsoftAuth.getUserProfile();
+      await storage.setSetting("microsoft_email", profile.mail || profile.userPrincipalName);
+      
+      // Redirect to emails page with success
+      res.redirect("/emails?connected=true");
+    } catch (error) {
+      console.error("OAuth callback error:", error);
+      res.redirect("/emails?error=auth_failed");
+    }
+  });
+  
+  // Get Microsoft connection status
+  app.get("/api/microsoft/status", async (req: Request, res: Response) => {
+    try {
+      const connected = await storage.getSetting("microsoft_connected");
+      const email = await storage.getSetting("microsoft_email");
+      const tokenAcquired = await storage.getSetting("microsoft_token_acquired");
+      
+      res.json({
+        connected: connected?.value === true,
+        email: email?.value || null,
+        tokenAcquired: tokenAcquired?.value || null
+      });
+    } catch (error) {
+      console.error("Failed to get Microsoft status:", error);
+      res.status(500).json({ error: "Failed to get connection status" });
+    }
+  });
+  
+  // Sync emails from Outlook
+  app.post("/api/microsoft/sync", async (req: Request, res: Response) => {
+    try {
+      const { microsoftAuth } = await import("./services/microsoft-auth");
+      const { folder = "inbox", limit = 50 } = req.body;
+      
+      // Fetch emails from Outlook
+      const outlookEmails = await microsoftAuth.fetchEmails(folder, limit);
+      
+      // Convert and store in our database
+      let syncedCount = 0;
+      for (const outlookEmail of outlookEmails) {
+        const emailData = microsoftAuth.convertToEmail(outlookEmail);
+        
+        // Check if email already exists
+        const existing = await db.select().from(emails)
+          .where(eq(emails.messageId, outlookEmail.id))
+          .limit(1);
+        
+        if (existing.length === 0) {
+          await storage.createEmail({
+            ...emailData,
+            messageId: outlookEmail.id,
+          } as any);
+          syncedCount++;
+        }
+      }
+      
+      res.json({ 
+        success: true, 
+        syncedCount,
+        totalFetched: outlookEmails.length 
+      });
+    } catch (error) {
+      console.error("Failed to sync emails:", error);
+      res.status(500).json({ error: "Failed to sync emails from Outlook" });
+    }
+  });
+  
+  // Send email via Outlook
+  app.post("/api/microsoft/send", async (req: Request, res: Response) => {
+    try {
+      const { microsoftAuth } = await import("./services/microsoft-auth");
+      const { to, cc, bcc, subject, body, isHtml } = req.body;
+      
+      await microsoftAuth.sendEmail({
+        to,
+        cc,
+        bcc,
+        subject,
+        body,
+        isHtml
+      });
+      
+      // Also save to our database
+      await storage.createEmail({
+        to,
+        cc: cc || [],
+        bcc: bcc || [],
+        subject,
+        body,
+        bodyHtml: isHtml ? body : undefined,
+        from: "info@sovoice.ai",
+        status: "sent",
+        folder: "sent",
+        sentAt: new Date()
+      } as any);
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Failed to send email via Outlook:", error);
+      res.status(500).json({ error: "Failed to send email" });
+    }
+  });
+  
   // ==================== EMAIL API ENDPOINTS ====================
   
   // Get emails
