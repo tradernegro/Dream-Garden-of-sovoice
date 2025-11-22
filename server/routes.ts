@@ -491,14 +491,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         console.log(`[Twilio] Initiating call from ${fromNumber} to ${phoneNumber}`);
         
-        const baseUrl = process.env.REPLIT_DOMAINS 
-          ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
-          : 'http://localhost:5000';
+        // Use REPLIT_DEV_DOMAIN which is always available in Replit
+        const domain = process.env.REPLIT_DEV_DOMAIN || process.env.REPLIT_DOMAINS?.split(',')[0];
+        const baseUrl = domain ? `https://${domain}` : 'http://localhost:5000';
+        
+        console.log(`[Twilio] Using webhook base URL: ${baseUrl}`);
+        const voiceWebhookUrl = `${baseUrl}/api/twilio/voice?callId=${call.id}`;
+        console.log(`[Twilio] Voice webhook URL: ${voiceWebhookUrl}`);
         
         const twilioCall = await twilioClient.calls.create({
           to: phoneNumber,
           from: fromNumber,
-          url: `${baseUrl}/api/twilio/voice?callId=${call.id}`,
+          url: voiceWebhookUrl,
           statusCallback: `${baseUrl}/api/twilio/status`,
           statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
           record: true, // Enable recording

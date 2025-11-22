@@ -25,9 +25,25 @@ export class OpenAIRealtimeSession {
   }
 
   async start() {
-    const apiKey = process.env.OPENAI_API_KEY || process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
-    if (!apiKey) {
-      throw new Error("OpenAI API key not configured");
+    // Prioritize real OPENAI_API_KEY over dummy AI_INTEGRATIONS key
+    const realKey = process.env.OPENAI_API_KEY;
+    const integrationKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+    
+    let apiKeyToUse: string | undefined;
+    
+    // Check if real key exists and is not dummy
+    if (realKey && !realKey.includes('_DUMMY_')) {
+      apiKeyToUse = realKey;
+      console.log(`[Session ${this.callId}] Using real OPENAI_API_KEY`);
+    } 
+    // Otherwise check integration key
+    else if (integrationKey && !integrationKey.includes('_DUMMY_')) {
+      apiKeyToUse = integrationKey;
+      console.log(`[Session ${this.callId}] Using AI_INTEGRATIONS_OPENAI_API_KEY`);
+    }
+    
+    if (!apiKeyToUse) {
+      throw new Error("OpenAI API key not configured or using dummy key");
     }
 
     // Get agent configuration
@@ -43,7 +59,7 @@ export class OpenAIRealtimeSession {
     const url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01";
     this.openaiWs = new WebSocket(url, {
       headers: {
-        "Authorization": `Bearer ${apiKey}`,
+        "Authorization": `Bearer ${apiKeyToUse}`,
         "OpenAI-Beta": "realtime=v1"
       }
     });

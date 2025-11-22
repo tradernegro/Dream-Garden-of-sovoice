@@ -10,9 +10,20 @@ import { Readable } from "stream";
 
 const { WaveFile } = wavefile;
 
+// Prioritize real OPENAI_API_KEY over dummy AI_INTEGRATIONS key
+const realOpenAIKey = process.env.OPENAI_API_KEY;
+const integrationOpenAIKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+
+let openaiApiKey: string | undefined;
+if (realOpenAIKey && !realOpenAIKey.includes('_DUMMY_')) {
+  openaiApiKey = realOpenAIKey;
+} else if (integrationOpenAIKey && !integrationOpenAIKey.includes('_DUMMY_')) {
+  openaiApiKey = integrationOpenAIKey;
+}
+
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.OPENAI_API_KEY ? undefined : process.env.AI_INTEGRATIONS_OPENAI_BASE_URL
+  apiKey: openaiApiKey,
+  baseURL: realOpenAIKey && !realOpenAIKey.includes('_DUMMY_') ? undefined : process.env.AI_INTEGRATIONS_OPENAI_BASE_URL
 });
 
 export interface ElevenLabsSessionConfig {
