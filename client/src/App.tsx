@@ -19,6 +19,7 @@ import Settings from "@/pages/settings";
 import Projects from "@/pages/projects";
 import ProjectDetail from "@/pages/project-detail";
 import PhoneNumbers from "@/pages/phone-numbers";
+import EmailManagement from "@/pages/emails";
 
 function Router() {
   return (
@@ -32,6 +33,7 @@ function Router() {
       <Route path="/agents" component={Agents} />
       <Route path="/analytics" component={Analytics} />
       <Route path="/phone-numbers" component={PhoneNumbers} />
+      <Route path="/emails" component={EmailManagement} />
       <Route path="/settings" component={Settings} />
       <Route component={NotFound} />
     </Switch>

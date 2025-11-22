@@ -15,6 +15,7 @@ import {
   type ProjectAgent, type InsertProjectAgent,
   type ProjectApiKey, type InsertProjectApiKey,
   type PhoneNumber, type InsertPhoneNumber,
+  type Email, type InsertEmail,
   calls,
   agents,
   settings,
@@ -28,7 +29,8 @@ import {
   projectWorkflows,
   projectAgents,
   projectApiKeys,
-  phoneNumbers
+  phoneNumbers,
+  emails
 } from "@shared/schema";
 
 export interface IStorage {
@@ -119,6 +121,17 @@ export interface IStorage {
   createPhoneNumber(phoneNumber: InsertPhoneNumber): Promise<PhoneNumber>;
   updatePhoneNumber(id: string, phoneNumber: Partial<InsertPhoneNumber>): Promise<PhoneNumber | undefined>;
   deletePhoneNumber(id: string): Promise<boolean>;
+  
+  // Email methods
+  getEmails(folder?: string, limit?: number): Promise<Email[]>;
+  getEmail(id: string): Promise<Email | undefined>;
+  getEmailsByThread(threadId: string): Promise<Email[]>;
+  createEmail(email: InsertEmail): Promise<Email>;
+  updateEmail(id: string, email: Partial<InsertEmail>): Promise<Email | undefined>;
+  deleteEmail(id: string): Promise<boolean>;
+  markEmailAsRead(id: string): Promise<Email | undefined>;
+  toggleEmailStar(id: string): Promise<Email | undefined>;
+  moveEmailToFolder(id: string, folder: string): Promise<Email | undefined>;
 }
 
 export class DbStorage implements IStorage {
@@ -1042,6 +1055,144 @@ export class DbStorage implements IStorage {
     } catch (error) {
       console.error('[DbStorage] Error deleting phone number:', error);
       return false;
+    }
+  }
+
+  // Email methods
+  async getEmails(folder?: string, limit: number = 100): Promise<Email[]> {
+    try {
+      let query = db.select().from(emails).orderBy(desc(emails.receivedAt), desc(emails.createdAt));
+      
+      if (folder) {
+        query = query.where(eq(emails.folder, folder)) as any;
+      }
+      
+      query = query.limit(limit) as any;
+      
+      const result = await query;
+      return result;
+    } catch (error) {
+      console.error('[DbStorage] Error getting emails:', error);
+      return [];
+    }
+  }
+
+  async getEmail(id: string): Promise<Email | undefined> {
+    try {
+      const result = await db.select().from(emails).where(eq(emails.id, id));
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error getting email:', error);
+      return undefined;
+    }
+  }
+
+  async getEmailsByThread(threadId: string): Promise<Email[]> {
+    try {
+      const result = await db
+        .select()
+        .from(emails)
+        .where(eq(emails.threadId, threadId))
+        .orderBy(emails.createdAt);
+      return result;
+    } catch (error) {
+      console.error('[DbStorage] Error getting emails by thread:', error);
+      return [];
+    }
+  }
+
+  async createEmail(insertEmail: InsertEmail): Promise<Email> {
+    try {
+      const result = await db.insert(emails).values(insertEmail).returning();
+      console.log('[DbStorage] Created email:', result[0].subject);
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error creating email:', error);
+      throw error;
+    }
+  }
+
+  async updateEmail(id: string, updateData: Partial<InsertEmail>): Promise<Email | undefined> {
+    try {
+      const result = await db.update(emails)
+        .set({
+          ...updateData,
+          updatedAt: new Date()
+        })
+        .where(eq(emails.id, id))
+        .returning();
+      
+      if (result.length > 0) {
+        console.log('[DbStorage] Updated email:', id);
+      }
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error updating email:', error);
+      return undefined;
+    }
+  }
+
+  async deleteEmail(id: string): Promise<boolean> {
+    try {
+      const result = await db.delete(emails).where(eq(emails.id, id)).returning();
+      if (result.length > 0) {
+        console.log('[DbStorage] Deleted email:', id);
+      }
+      return result.length > 0;
+    } catch (error) {
+      console.error('[DbStorage] Error deleting email:', error);
+      return false;
+    }
+  }
+
+  async markEmailAsRead(id: string): Promise<Email | undefined> {
+    try {
+      const result = await db.update(emails)
+        .set({
+          isRead: 1,
+          updatedAt: new Date()
+        })
+        .where(eq(emails.id, id))
+        .returning();
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error marking email as read:', error);
+      return undefined;
+    }
+  }
+
+  async toggleEmailStar(id: string): Promise<Email | undefined> {
+    try {
+      const email = await this.getEmail(id);
+      if (!email) return undefined;
+      
+      const result = await db.update(emails)
+        .set({
+          isStarred: email.isStarred ? 0 : 1,
+          updatedAt: new Date()
+        })
+        .where(eq(emails.id, id))
+        .returning();
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error toggling email star:', error);
+      return undefined;
+    }
+  }
+
+  async moveEmailToFolder(id: string, folder: string): Promise<Email | undefined> {
+    try {
+      const result = await db.update(emails)
+        .set({
+          folder,
+          updatedAt: new Date()
+        })
+        .where(eq(emails.id, id))
+        .returning();
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error moving email to folder:', error);
+      return undefined;
     }
   }
 }

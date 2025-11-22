@@ -224,6 +224,56 @@ export const apiKeys = pgTable("api_keys", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Email Management table for Microsoft Outlook integration
+export const emails = pgTable("emails", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  subject: text("subject").notNull(),
+  from: text("from").notNull(),
+  to: text("to").array().notNull(),
+  cc: text("cc").array(),
+  bcc: text("bcc").array(),
+  body: text("body").notNull(),
+  bodyHtml: text("body_html"),
+  attachments: jsonb("attachments").$type<{
+    filename: string;
+    contentType: string;
+    size: number;
+    url?: string;
+  }[]>().default([]),
+  status: text("status").notNull().default("draft"), // draft, sent, received, archived
+  folder: text("folder").notNull().default("inbox"), // inbox, sent, drafts, trash, custom folders
+  priority: text("priority").default("normal"), // low, normal, high
+  isRead: integer("is_read").notNull().default(0), // 0 = unread, 1 = read
+  isStarred: integer("is_starred").notNull().default(0), // 0 = not starred, 1 = starred
+  tags: text("tags").array(),
+  threadId: varchar("thread_id"), // For conversation threading
+  messageId: text("message_id"), // Unique message ID from email system
+  inReplyTo: text("in_reply_to"), // For tracking replies
+  metadata: jsonb("metadata").$type<{
+    outlookId?: string;
+    outlookConversationId?: string;
+    outlookWebLink?: string;
+    headers?: Record<string, string>;
+    categories?: string[];
+  }>().default({}),
+  sentAt: timestamp("sent_at"),
+  receivedAt: timestamp("received_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertEmailSchema = createInsertSchema(emails).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const updateEmailSchema = insertEmailSchema.partial();
+
+export type InsertEmail = z.infer<typeof insertEmailSchema>;
+export type UpdateEmail = z.infer<typeof updateEmailSchema>;
+export type Email = typeof emails.$inferSelect;
+
 export const insertApiKeySchema = createInsertSchema(apiKeys).omit({
   id: true,
   createdAt: true,

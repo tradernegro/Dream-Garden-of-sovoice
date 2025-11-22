@@ -1606,6 +1606,162 @@ AGENT_CREATE:
     }
   });
 
+  // ==================== EMAIL API ENDPOINTS ====================
+  
+  // Get emails
+  app.get("/api/emails", async (req: Request, res: Response) => {
+    try {
+      const folder = req.query.folder as string | undefined;
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 100;
+      const emails = await storage.getEmails(folder, limit);
+      res.json(emails);
+    } catch (error) {
+      console.error("Failed to get emails:", error);
+      res.status(500).json({ error: "Failed to get emails" });
+    }
+  });
+
+  // Get specific email
+  app.get("/api/emails/:id", async (req: Request, res: Response) => {
+    try {
+      const email = await storage.getEmail(req.params.id);
+      if (!email) {
+        return res.status(404).json({ error: "Email not found" });
+      }
+      res.json(email);
+    } catch (error) {
+      console.error("Failed to get email:", error);
+      res.status(500).json({ error: "Failed to get email" });
+    }
+  });
+
+  // Get emails by thread
+  app.get("/api/threads/:threadId/emails", async (req: Request, res: Response) => {
+    try {
+      const emails = await storage.getEmailsByThread(req.params.threadId);
+      res.json(emails);
+    } catch (error) {
+      console.error("Failed to get thread emails:", error);
+      res.status(500).json({ error: "Failed to get thread emails" });
+    }
+  });
+
+  // Create/send email
+  app.post("/api/emails", async (req: Request, res: Response) => {
+    try {
+      const emailData = {
+        ...req.body,
+        from: req.body.from || "info@sovoice.ai",
+        sentAt: req.body.status === "sent" ? new Date() : undefined
+      };
+      
+      const email = await storage.createEmail(emailData);
+      
+      // Broadcast to connected clients
+      broadcastToClients("email:created", email);
+      
+      res.json(email);
+    } catch (error) {
+      console.error("Failed to create email:", error);
+      res.status(500).json({ error: "Failed to create email" });
+    }
+  });
+
+  // Update email
+  app.patch("/api/emails/:id", async (req: Request, res: Response) => {
+    try {
+      const email = await storage.updateEmail(req.params.id, req.body);
+      if (!email) {
+        return res.status(404).json({ error: "Email not found" });
+      }
+      
+      // Broadcast to connected clients
+      broadcastToClients("email:updated", email);
+      
+      res.json(email);
+    } catch (error) {
+      console.error("Failed to update email:", error);
+      res.status(500).json({ error: "Failed to update email" });
+    }
+  });
+
+  // Delete email
+  app.delete("/api/emails/:id", async (req: Request, res: Response) => {
+    try {
+      const deleted = await storage.deleteEmail(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Email not found" });
+      }
+      
+      // Broadcast to connected clients
+      broadcastToClients("email:deleted", { id: req.params.id });
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Failed to delete email:", error);
+      res.status(500).json({ error: "Failed to delete email" });
+    }
+  });
+
+  // Mark email as read
+  app.post("/api/emails/:id/read", async (req: Request, res: Response) => {
+    try {
+      const email = await storage.markEmailAsRead(req.params.id);
+      if (!email) {
+        return res.status(404).json({ error: "Email not found" });
+      }
+      
+      // Broadcast to connected clients
+      broadcastToClients("email:read", { id: req.params.id });
+      
+      res.json(email);
+    } catch (error) {
+      console.error("Failed to mark email as read:", error);
+      res.status(500).json({ error: "Failed to mark email as read" });
+    }
+  });
+
+  // Toggle email star
+  app.post("/api/emails/:id/star", async (req: Request, res: Response) => {
+    try {
+      const email = await storage.toggleEmailStar(req.params.id);
+      if (!email) {
+        return res.status(404).json({ error: "Email not found" });
+      }
+      
+      // Broadcast to connected clients
+      broadcastToClients("email:starred", email);
+      
+      res.json(email);
+    } catch (error) {
+      console.error("Failed to toggle email star:", error);
+      res.status(500).json({ error: "Failed to toggle email star" });
+    }
+  });
+
+  // Move email to folder
+  app.post("/api/emails/:id/move", async (req: Request, res: Response) => {
+    try {
+      const { folder } = req.body;
+      if (!folder) {
+        return res.status(400).json({ error: "Folder is required" });
+      }
+      
+      const email = await storage.moveEmailToFolder(req.params.id, folder);
+      if (!email) {
+        return res.status(404).json({ error: "Email not found" });
+      }
+      
+      // Broadcast to connected clients
+      broadcastToClients("email:moved", { id: req.params.id, folder });
+      
+      res.json(email);
+    } catch (error) {
+      console.error("Failed to move email:", error);
+      res.status(500).json({ error: "Failed to move email" });
+    }
+  });
+
   // ==================== WEBSOCKET SETUP ====================
 
   const httpServer = createServer(app);

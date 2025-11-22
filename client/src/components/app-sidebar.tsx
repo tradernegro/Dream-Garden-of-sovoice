@@ -10,7 +10,8 @@ import {
   Settings,
   PhoneCall,
   Folder,
-  Smartphone
+  Smartphone,
+  Mail
 } from "lucide-react";
 import { 
   Sidebar, 
@@ -38,6 +39,16 @@ const navigationItems = [
     href: "/",
   },
   {
+    title: "Phone Numbers",
+    icon: Smartphone,
+    href: "/phone-numbers",
+  },
+  {
+    title: "Email Management",
+    icon: Mail,
+    href: "/emails",
+  },
+  {
     title: "Projects",
     icon: FolderKanban,
     href: "/projects",
@@ -56,11 +67,6 @@ const navigationItems = [
     title: "Analytics",
     icon: BarChart3,
     href: "/analytics",
-  },
-  {
-    title: "Phone Numbers",
-    icon: Smartphone,
-    href: "/phone-numbers",
   },
   {
     title: "Settings",
