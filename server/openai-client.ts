@@ -1,10 +1,10 @@
 // OpenAI integration using the blueprint
 import OpenAI from "openai";
 
-// Using Replit AI Integrations for OpenAI access
+// Using OpenAI API - prefer direct API key over AI Integrations
 const openai = new OpenAI({ 
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || undefined
+  apiKey: process.env.OPENAI_API_KEY || process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+  baseURL: process.env.OPENAI_API_KEY ? undefined : process.env.AI_INTEGRATIONS_OPENAI_BASE_URL
 });
 
 export async function sendChatMessage(
