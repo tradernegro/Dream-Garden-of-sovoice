@@ -45,7 +45,16 @@ import {
   Calendar,
   DollarSign,
   Activity,
-  FolderKanban
+  FolderKanban,
+  Settings2,
+  Copy,
+  Eye,
+  EyeOff,
+  TestTube,
+  Link2,
+  Shield,
+  Loader2,
+  Check
 } from "lucide-react";
 import type { Project } from "@shared/schema";
 
@@ -78,7 +87,16 @@ interface PhoneNumber {
 export default function PhoneNumbers() {
   const { toast } = useToast();
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [isConfigDialogOpen, setIsConfigDialogOpen] = useState(false);
   const [selectedNumber, setSelectedNumber] = useState<PhoneNumber | null>(null);
+  const [showAuthToken, setShowAuthToken] = useState(false);
+  const [showAccountSid, setShowAccountSid] = useState(false);
+  const [copiedWebhook, setCopiedWebhook] = useState<string | null>(null);
+  const [configForm, setConfigForm] = useState({
+    accountSid: "",
+    authToken: "",
+    phoneNumber: ""
+  });
   const [newNumber, setNewNumber] = useState({
     phoneNumber: "",
     friendlyName: "",
@@ -108,6 +126,72 @@ export default function PhoneNumbers() {
   // Fetch projects for assignment
   const { data: projects = [] } = useQuery<Project[]>({
     queryKey: ["/api/projects"],
+  });
+
+  // Fetch Twilio configuration status
+  const { data: twilioConfig, isLoading: isLoadingConfig } = useQuery({
+    queryKey: ["/api/twilio/config"],
+    queryFn: async () => {
+      const response = await fetch("/api/twilio/config");
+      if (!response.ok) throw new Error("Failed to fetch Twilio config");
+      return response.json();
+    },
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
+
+  // Test Twilio connection mutation
+  const testConnectionMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch("/api/twilio/config");
+      if (!response.ok) throw new Error("Failed to test connection");
+      return response.json();
+    },
+    onSuccess: (data) => {
+      if (data.configured) {
+        toast({
+          title: "Connection Successful",
+          description: "Twilio is properly configured and connected.",
+        });
+      } else {
+        toast({
+          title: "Not Configured",
+          description: "Please configure your Twilio credentials first.",
+          variant: "destructive",
+        });
+      }
+    },
+    onError: (error) => {
+      toast({
+        title: "Connection Test Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  });
+
+  // Update Twilio configuration mutation
+  const updateConfigMutation = useMutation({
+    mutationFn: async (data: typeof configForm) => {
+      const response = await apiRequest("POST", "/api/twilio/config", data);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/twilio/config"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/phone-numbers"] });
+      setIsConfigDialogOpen(false);
+      setConfigForm({ accountSid: "", authToken: "", phoneNumber: "" });
+      toast({
+        title: "Configuration Updated",
+        description: "Twilio configuration and webhooks have been updated successfully.",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Configuration Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
   });
 
   // Add phone number mutation
@@ -222,6 +306,24 @@ export default function PhoneNumbers() {
       return `${number.slice(0, 2)} (${number.slice(2, 5)}) ${number.slice(5, 8)}-${number.slice(8)}`;
     }
     return number;
+  };
+
+  const copyToClipboard = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedWebhook(label);
+      setTimeout(() => setCopiedWebhook(null), 2000);
+      toast({
+        title: "Copied!",
+        description: `${label} copied to clipboard.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Failed to copy",
+        description: "Could not copy to clipboard. Please copy manually.",
+        variant: "destructive",
+      });
+    }
   };
 
   // Calculate stats
@@ -410,6 +512,197 @@ export default function PhoneNumbers() {
           </DialogContent>
         </Dialog>
       </div>
+
+      {/* Twilio Configuration Card */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+          <div className="flex items-center gap-3">
+            <Shield className="h-5 w-5 text-orange-500" />
+            <div>
+              <CardTitle>Twilio Configuration</CardTitle>
+              <CardDescription>Manage your Twilio account settings and webhooks</CardDescription>
+            </div>
+          </div>
+          <Badge 
+            className={twilioConfig?.configured ? "bg-orange-500/10 text-orange-500" : "bg-muted text-muted-foreground"}
+            data-testid="badge-twilio-status"
+          >
+            {isLoadingConfig ? (
+              <>
+                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                Checking...
+              </>
+            ) : twilioConfig?.configured ? (
+              <>
+                <CheckCircle className="h-3 w-3 mr-1" />
+                Configured
+              </>
+            ) : (
+              <>
+                <XCircle className="h-3 w-3 mr-1" />
+                Not Configured
+              </>
+            )}
+          </Badge>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Configuration Status */}
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Account SID</Label>
+              <div className="flex items-center gap-2">
+                {twilioConfig?.hasAccountSid ? (
+                  <Badge variant="secondary" className="font-mono text-xs">
+                    <Shield className="h-3 w-3 mr-1" />
+                    Configured
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-xs">Not Set</Badge>
+                )}
+              </div>
+            </div>
+            
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Auth Token</Label>
+              <div className="flex items-center gap-2">
+                {twilioConfig?.hasAuthToken ? (
+                  <Badge variant="secondary" className="font-mono text-xs">
+                    <Shield className="h-3 w-3 mr-1" />
+                    Configured
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-xs">Not Set</Badge>
+                )}
+              </div>
+            </div>
+            
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Phone Number</Label>
+              <div className="flex items-center gap-2">
+                {twilioConfig?.fullPhoneNumber ? (
+                  <Badge variant="secondary" className="font-mono text-xs">
+                    <Phone className="h-3 w-3 mr-1" />
+                    {twilioConfig.phoneNumber}
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-xs">Not Set</Badge>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Webhook URLs */}
+          {twilioConfig?.webhookUrls && (
+            <div className="border rounded-lg p-4 space-y-3">
+              <div className="flex items-center gap-2 mb-2">
+                <Link2 className="h-4 w-4 text-muted-foreground" />
+                <Label className="text-sm font-medium">Webhook URLs</Label>
+              </div>
+              
+              <div className="space-y-2 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">Voice URL:</span>
+                  <div className="flex items-center gap-1">
+                    <code className="bg-muted px-2 py-1 rounded" data-testid="text-voice-url">
+                      {twilioConfig.webhookUrls.voice}
+                    </code>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => copyToClipboard(twilioConfig.webhookUrls.voice, "Voice URL")}
+                      data-testid="button-copy-voice-url"
+                    >
+                      {copiedWebhook === "Voice URL" ? (
+                        <Check className="h-3 w-3 text-green-500" />
+                      ) : (
+                        <Copy className="h-3 w-3" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
+                
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">Status URL:</span>
+                  <div className="flex items-center gap-1">
+                    <code className="bg-muted px-2 py-1 rounded" data-testid="text-status-url">
+                      {twilioConfig.webhookUrls.status}
+                    </code>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => copyToClipboard(twilioConfig.webhookUrls.status, "Status URL")}
+                      data-testid="button-copy-status-url"
+                    >
+                      {copiedWebhook === "Status URL" ? (
+                        <Check className="h-3 w-3 text-green-500" />
+                      ) : (
+                        <Copy className="h-3 w-3" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
+                
+                {twilioConfig.webhookUrls.stream && (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">Stream URL:</span>
+                    <div className="flex items-center gap-1">
+                      <code className="bg-muted px-2 py-1 rounded" data-testid="text-stream-url">
+                        {twilioConfig.webhookUrls.stream}
+                      </code>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => copyToClipboard(twilioConfig.webhookUrls.stream, "Stream URL")}
+                        data-testid="button-copy-stream-url"
+                      >
+                        {copiedWebhook === "Stream URL" ? (
+                          <Check className="h-3 w-3 text-green-500" />
+                        ) : (
+                          <Copy className="h-3 w-3" />
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              <p className="text-xs text-muted-foreground mt-2">
+                These URLs are automatically configured when you save your Twilio credentials.
+              </p>
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => testConnectionMutation.mutate()}
+              disabled={testConnectionMutation.isPending || !twilioConfig?.configured}
+              data-testid="button-test-connection"
+            >
+              {testConnectionMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <TestTube className="h-4 w-4 mr-2" />
+              )}
+              Test Connection
+            </Button>
+            
+            <Button
+              size="sm"
+              onClick={() => setIsConfigDialogOpen(true)}
+              data-testid="button-configure-twilio"
+            >
+              <Settings2 className="h-4 w-4 mr-2" />
+              Configure Twilio
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -631,6 +924,154 @@ export default function PhoneNumbers() {
           </CardContent>
         </Card>
       )}
+
+      {/* Twilio Configuration Dialog */}
+      <Dialog open={isConfigDialogOpen} onOpenChange={setIsConfigDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Configure Twilio</DialogTitle>
+            <DialogDescription>
+              Enter your Twilio credentials to enable phone call functionality. These credentials will be securely stored and used to configure webhooks automatically.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="account-sid">
+                Account SID
+                <span className="text-xs text-muted-foreground ml-2">
+                  Found in your Twilio Console
+                </span>
+              </Label>
+              <div className="relative">
+                <Input
+                  id="account-sid"
+                  type={showAccountSid ? "text" : "password"}
+                  placeholder="AC..."
+                  value={configForm.accountSid}
+                  onChange={(e) => setConfigForm({ ...configForm, accountSid: e.target.value })}
+                  className="pr-10 font-mono"
+                  data-testid="input-account-sid"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-0 top-0 h-full px-3"
+                  onClick={() => setShowAccountSid(!showAccountSid)}
+                  data-testid="button-toggle-account-sid"
+                >
+                  {showAccountSid ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="auth-token">
+                Auth Token
+                <span className="text-xs text-muted-foreground ml-2">
+                  Keep this secret and secure
+                </span>
+              </Label>
+              <div className="relative">
+                <Input
+                  id="auth-token"
+                  type={showAuthToken ? "text" : "password"}
+                  placeholder="••••••••••••••••"
+                  value={configForm.authToken}
+                  onChange={(e) => setConfigForm({ ...configForm, authToken: e.target.value })}
+                  className="pr-10 font-mono"
+                  data-testid="input-auth-token"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-0 top-0 h-full px-3"
+                  onClick={() => setShowAuthToken(!showAuthToken)}
+                  data-testid="button-toggle-auth-token"
+                >
+                  {showAuthToken ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="phone-number">
+                Twilio Phone Number
+                <span className="text-xs text-muted-foreground ml-2">
+                  The phone number to use for calls
+                </span>
+              </Label>
+              <Input
+                id="phone-number"
+                type="tel"
+                placeholder="+1234567890"
+                value={configForm.phoneNumber}
+                onChange={(e) => setConfigForm({ ...configForm, phoneNumber: e.target.value })}
+                className="font-mono"
+                data-testid="input-phone-number-config"
+              />
+              <p className="text-xs text-muted-foreground">
+                Include the country code (e.g., +1 for US)
+              </p>
+            </div>
+
+            <div className="rounded-lg border bg-muted/50 p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <AlertCircle className="h-4 w-4 text-orange-500" />
+                <span className="text-sm font-medium">Important</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Saving these credentials will automatically configure your Twilio phone number with the correct webhook URLs for handling calls. Make sure the phone number is active in your Twilio account.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsConfigDialogOpen(false);
+                setConfigForm({ accountSid: "", authToken: "", phoneNumber: "" });
+                setShowAccountSid(false);
+                setShowAuthToken(false);
+              }}
+              data-testid="button-cancel-config"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => updateConfigMutation.mutate(configForm)}
+              disabled={
+                updateConfigMutation.isPending ||
+                !configForm.accountSid ||
+                !configForm.authToken ||
+                !configForm.phoneNumber
+              }
+              data-testid="button-save-config"
+            >
+              {updateConfigMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Configuring...
+                </>
+              ) : (
+                <>
+                  <Check className="h-4 w-4 mr-2" />
+                  Save & Configure
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
