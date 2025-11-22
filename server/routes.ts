@@ -468,6 +468,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Phone number is required" });
       }
 
+      // Validate phone number format
+      const phoneRegex = /^\+?[1-9]\d{1,14}$/;
+      if (!phoneRegex.test(phoneNumber.replace(/[\s()-]/g, ''))) {
+        return res.status(400).json({ 
+          error: "Ungültige Telefonnummer. Bitte verwenden Sie ein gültiges Format wie +491234567890" 
+        });
+      }
+
       // Create call record
       const call = await storage.createCall({
         phoneNumber,
@@ -480,6 +488,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         const twilioClient = await getTwilioClient();
         const fromNumber = await getTwilioFromPhoneNumber();
+        
+        console.log(`[Twilio] Initiating call from ${fromNumber} to ${phoneNumber}`);
         
         const baseUrl = process.env.REPLIT_DOMAINS 
           ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
@@ -495,6 +505,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           recordingStatusCallback: `${baseUrl}/api/twilio/recording-status`,
         });
 
+        console.log(`[Twilio] Call initiated successfully with SID: ${twilioCall.sid}`);
+
         // Update call with Twilio SID
         const updatedCall = await storage.updateCall(call.id, {
           metadata: { twilioSid: twilioCall.sid } as any,
@@ -505,10 +517,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         broadcastToClients("call:created", updatedCall);
         
         res.json(updatedCall);
-      } catch (twilioError) {
-        console.error("Twilio error:", twilioError);
+      } catch (twilioError: any) {
+        console.error("[Twilio] Error details:", {
+          code: twilioError.code,
+          message: twilioError.message,
+          moreInfo: twilioError.moreInfo
+        });
+        
         await storage.updateCall(call.id, { status: "failed" });
-        res.status(500).json({ error: "Failed to initiate call" });
+        
+        // Provide user-friendly error messages
+        let errorMessage = "Anruf konnte nicht gestartet werden";
+        if (twilioError.code === 21216) {
+          errorMessage = "Diese Nummer kann nicht angerufen werden. Bitte überprüfen Sie die Nummer oder Ihre Twilio-Berechtigungen.";
+        } else if (twilioError.code === 21201) {
+          errorMessage = "Ungültige Telefonnummer. Bitte verwenden Sie das Format +491234567890";
+        }
+        
+        res.status(500).json({ error: errorMessage });
       }
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });

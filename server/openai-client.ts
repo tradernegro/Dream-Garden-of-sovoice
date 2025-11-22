@@ -1,9 +1,11 @@
 // OpenAI integration using the blueprint
 import OpenAI from "openai";
 
-// the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
-// This is using OpenAI's API, which points to OpenAI's API servers and requires your own API key.
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Using Replit AI Integrations for OpenAI access
+const openai = new OpenAI({ 
+  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY,
+  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || undefined
+});
 
 export async function sendChatMessage(
   messages: Array<{ role: "user" | "assistant"; content: string }>,
