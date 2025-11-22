@@ -84,6 +84,8 @@ export default function EmailManagement() {
   const { toast } = useToast();
   const [selectedFolder, setSelectedFolder] = useState("inbox");
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
+  const [selectedEmails, setSelectedEmails] = useState<Set<string>>(new Set());
+  const [isSelectMode, setIsSelectMode] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [advancedFilters, setAdvancedFilters] = useState({
     from: "",
@@ -838,8 +840,23 @@ export default function EmailManagement() {
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">
-                {filteredEmails.length} email{filteredEmails.length !== 1 ? "s" : ""}
+                {isSelectMode && selectedEmails.size > 0 
+                  ? `${selectedEmails.size} ausgewählt` 
+                  : `${filteredEmails.length} E-Mail${filteredEmails.length !== 1 ? "s" : ""}`}
               </span>
+              <Button
+                variant={isSelectMode ? "default" : "outline"}
+                size="sm"
+                onClick={() => {
+                  setIsSelectMode(!isSelectMode);
+                  if (isSelectMode) {
+                    setSelectedEmails(new Set());
+                  }
+                }}
+                data-testid="button-select-mode"
+              >
+                {isSelectMode ? "Auswahl beenden" : "Auswählen"}
+              </Button>
               <Select value="newest">
                 <SelectTrigger className="w-[120px] h-8" data-testid="select-sort">
                   <SelectValue />
@@ -853,6 +870,89 @@ export default function EmailManagement() {
               </Select>
             </div>
           </div>
+          
+          {/* Bulk Actions Toolbar */}
+          {isSelectMode && selectedEmails.size > 0 && (
+            <div className="p-3 border-b bg-muted/50 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">
+                  {selectedEmails.size} E-Mail{selectedEmails.size !== 1 ? "s" : ""} ausgewählt
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    const allEmailIds = new Set(filteredEmails.map(e => e.id));
+                    setSelectedEmails(allEmailIds);
+                  }}
+                  data-testid="button-select-all"
+                >
+                  Alle auswählen
+                </Button>
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    selectedEmails.forEach(id => {
+                      markAsReadMutation.mutate({ id, isRead: true });
+                    });
+                    setSelectedEmails(new Set());
+                  }}
+                  data-testid="button-bulk-mark-read"
+                >
+                  <Mail className="h-3 w-3 mr-1" />
+                  Als gelesen
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    selectedEmails.forEach(id => {
+                      moveToFolderMutation.mutate({ id, folder: "archive" });
+                    });
+                    setSelectedEmails(new Set());
+                  }}
+                  data-testid="button-bulk-archive"
+                >
+                  <Archive className="h-3 w-3 mr-1" />
+                  Archivieren
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    selectedEmails.forEach(id => {
+                      moveToFolderMutation.mutate({ id, folder: "junk" });
+                    });
+                    setSelectedEmails(new Set());
+                  }}
+                  data-testid="button-bulk-spam"
+                >
+                  <AlertCircle className="h-3 w-3 mr-1" />
+                  Spam
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-destructive"
+                  onClick={() => {
+                    if (confirm(`Möchten Sie wirklich ${selectedEmails.size} E-Mails löschen?`)) {
+                      selectedEmails.forEach(id => {
+                        deleteEmailMutation.mutate(id);
+                      });
+                      setSelectedEmails(new Set());
+                    }
+                  }}
+                  data-testid="button-bulk-delete"
+                >
+                  <Trash2 className="h-3 w-3 mr-1" />
+                  Löschen
+                </Button>
+              </div>
+            </div>
+          )}
 
           <div className="overflow-y-auto h-[calc(100%-120px)]">
             {isLoading ? (
@@ -872,26 +972,45 @@ export default function EmailManagement() {
                     selectedEmail?.id === email.id ? "bg-muted" : ""
                   } ${!email.isRead ? "font-semibold" : ""}`}
                   onClick={() => {
-                    setSelectedEmail(email);
-                    if (!email.isRead) {
-                      markAsReadMutation.mutate(email.id);
+                    if (isSelectMode) {
+                      const newSelected = new Set(selectedEmails);
+                      if (newSelected.has(email.id)) {
+                        newSelected.delete(email.id);
+                      } else {
+                        newSelected.add(email.id);
+                      }
+                      setSelectedEmails(newSelected);
+                    } else {
+                      setSelectedEmail(email);
+                      if (!email.isRead) {
+                        markAsReadMutation.mutate(email.id);
+                      }
                     }
                   }}
                   data-testid={`email-item-${email.id}`}
                 >
                   <div className="flex items-start gap-3">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 mt-1"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleStarMutation.mutate(email.id);
-                      }}
-                      data-testid={`button-star-${email.id}`}
-                    >
-                      <Star className={`h-4 w-4 ${email.isStarred ? "fill-yellow-500 text-yellow-500" : ""}`} />
-                    </Button>
+                    {isSelectMode ? (
+                      <Checkbox
+                        className="mt-2"
+                        checked={selectedEmails.has(email.id)}
+                        onCheckedChange={() => {}}
+                        data-testid={`checkbox-${email.id}`}
+                      />
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 mt-1"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleStarMutation.mutate(email.id);
+                        }}
+                        data-testid={`button-star-${email.id}`}
+                      >
+                        <Star className={`h-4 w-4 ${email.isStarred ? "fill-yellow-500 text-yellow-500" : ""}`} />
+                      </Button>
+                    )}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-1">
                         <span className={`text-sm truncate ${!email.isRead ? "font-semibold" : ""}`}>
