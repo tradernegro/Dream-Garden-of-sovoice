@@ -304,43 +304,22 @@ export class OpenAIRealtimeSession {
       ? "Guten Tag, mein Name ist Nora von SOVOICE, die persönliche KI-Assistentin von Geschäftsführer Florian Sopa. Sie können ganz normal mit mir sprechen, wie mit einem echten Menschen. Ich verstehe Dialoge, und Sie können mich jederzeit während des Gesprächs unterbrechen – ich höre sofort auf zu sprechen."
       : "Hello! How can I help you today?"; // Fallback for non-German agents
     
-    // Create a conversation item with the greeting
-    const greetingCreated = this.sendToOpenAI({
-      type: "conversation.item.create",
-      item: {
-        type: "message",
-        role: "assistant",
-        content: [{
-          type: "text",
-          text: greetingText
-        }]
+    // Send response.create directly with the greeting text in the instructions
+    // This ensures OpenAI generates audio for the greeting
+    const responseCreated = this.sendToOpenAI({
+      type: "response.create",
+      response: {
+        modalities: ["text", "audio"],
+        voice: this.agent?.voice || "alloy", // Use the agent's configured voice (e.g., "marin" for German)
+        instructions: greetingText // Send the greeting text directly as instructions
       }
     }, true);
     
-    if (!greetingCreated) {
-      console.error(`[Session ${this.callId}] ❌ Failed to create greeting item`);
-      return;
+    if (responseCreated) {
+      console.log(`[Session ${this.callId}] ✅ Greeting audio response initiated with voice: ${this.agent?.voice || "alloy"}`);
+    } else {
+      console.error(`[Session ${this.callId}] ❌ Failed to initiate greeting audio`);
     }
-    
-    // Generate the audio response for the greeting with the agent's voice configuration
-    setTimeout(() => {
-      const responseCreated = this.sendToOpenAI({
-        type: "response.create",
-        response: {
-          modalities: ["text", "audio"],
-          voice: this.agent?.voice || "alloy", // Use the agent's configured voice
-          instructions: this.agent?.language === "de" 
-            ? "Sprich die Begrüßung in einem freundlichen, einladenden Ton auf Deutsch"
-            : "Say the greeting in a friendly, welcoming tone"
-        }
-      }, true);
-      
-      if (responseCreated) {
-        console.log(`[Session ${this.callId}] ✅ Greeting audio response initiated with voice: ${this.agent?.voice || "alloy"}`);
-      } else {
-        console.error(`[Session ${this.callId}] ❌ Failed to initiate greeting audio`);
-      }
-    }, 100); // Small delay to ensure the item is created first
   }
 
   private async waitForOpenAIReady(maxRetries = 10, retryDelay = 100): Promise<void> {
