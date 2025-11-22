@@ -1178,9 +1178,8 @@ export default function PhoneNumbers() {
                     const numberType = detectNumberType(number.phoneNumber) || number.metadata?.numberType;
                     const isExpanded = expandedRows.has(number.id);
                     
-                    return (
-                      <>
-                        <TableRow key={number.id} data-testid={`row-phone-${number.id}`}>
+                    return [
+                        <TableRow key={`main-${number.id}`} data-testid={`row-phone-${number.id}`}>
                           <TableCell>
                             <Button
                               variant="ghost"
@@ -1415,9 +1414,9 @@ export default function PhoneNumbers() {
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </TableCell>
-                        </TableRow>
-                        {isExpanded && (
-                          <TableRow>
+                        </TableRow>,
+                        isExpanded && (
+                          <TableRow key={`expanded-${number.id}`}>
                             <TableCell colSpan={9} className="p-0">
                               <div className="bg-muted/50 p-4 space-y-4">
                                 <div className="grid grid-cols-4 gap-4">
@@ -1522,9 +1521,8 @@ export default function PhoneNumbers() {
                               </div>
                             </TableCell>
                           </TableRow>
-                        )}
-                      </>
-                    );
+                        )
+                    ];
                   })}
                 </TableBody>
               </Table>
