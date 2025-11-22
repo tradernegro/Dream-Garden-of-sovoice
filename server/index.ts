@@ -106,29 +106,51 @@ app.use((req, res, next) => {
   server.listen(port, "0.0.0.0", () => {
     log(`serving on port ${port}`);
     
-    // Initialize operations AFTER server starts listening
-    // This ensures health checks pass immediately during deployment
-    setImmediate(() => {
-      (async () => {
+    // Run ALL initialization in the background without blocking
+    // Use process.nextTick to ensure server is fully ready
+    process.nextTick(() => {
+      // Wrap in setTimeout to ensure complete decoupling from server startup
+      setTimeout(async () => {
+        const isProduction = process.env.NODE_ENV === "production";
+        
+        if (isProduction) {
+          // In production: Skip ALL initialization to prevent timeout
+          log("[Init] Production mode - server ready, skipping initialization");
+          return;
+        }
+        
+        // Only run initialization in development
         try {
-          // Always initialize system agents (required for both dev and production)
-          await initializeSystemAgents();
+          log("[Init] Development mode - starting background initialization");
           
-          // Only seed sample data in development
-          const isProduction = process.env.NODE_ENV === "production";
-          if (!isProduction) {
-            await seedData();
-            
-            log("[Init] Background initialization complete");
+          // Run initialization with timeout protection
+          const initPromise = Promise.all([
+            initializeSystemAgents().catch(err => {
+              console.error("[Init] System agents initialization failed:", err);
+              return null;
+            }),
+            seedData().catch(err => {
+              console.error("[Init] Seed data failed:", err);  
+              return null;
+            })
+          ]);
+          
+          // Set a timeout for initialization (30 seconds max)
+          const timeoutPromise = new Promise((resolve) => {
+            setTimeout(() => resolve('timeout'), 30000);
+          });
+          
+          const result = await Promise.race([initPromise, timeoutPromise]);
+          
+          if (result === 'timeout') {
+            console.error("[Init] Initialization timed out after 30s, continuing anyway");
           } else {
-            log("[Init] Running in production mode - skipping development initialization");
+            log("[Init] Development initialization complete");
           }
         } catch (error) {
-          console.error("[Init] Background initialization failed:", error);
-          // Don't crash the server on initialization failure
-          // This allows health checks to continue passing even if initialization fails
+          console.error("[Init] Initialization error (non-fatal):", error);
         }
-      })();
+      }, 100); // Small delay to ensure server is fully ready
     });
   });
 })();

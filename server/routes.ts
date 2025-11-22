@@ -125,6 +125,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     credentials: false, // API uses Bearer tokens, not cookies
   }));
 
+  // ==================== SYSTEM INITIALIZATION ROUTE ====================
+  
+  // Manual system initialization endpoint (for production)
+  app.post("/api/init-system", async (req: Request, res: Response) => {
+    try {
+      // Allow manual initialization of system agents
+      await initializeSystemAgents();
+      console.log("[API] System agents initialized via API");
+      res.json({ success: true, message: "System agents initialized successfully" });
+    } catch (error) {
+      console.error("[API] System initialization error:", error);
+      res.status(500).json({ success: false, error: "Failed to initialize system agents" });
+    }
+  });
+
   // ==================== DASHBOARD ROUTES ====================
   
   // Get dashboard metrics
