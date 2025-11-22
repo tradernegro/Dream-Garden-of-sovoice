@@ -302,7 +302,7 @@ export class OpenAIRealtimeSession {
         type: "message",
         role: "assistant",
         content: [{
-          type: "input_text",
+          type: "text",
           text: "Hello! How can I help you today?"
         }]
       }
@@ -318,7 +318,7 @@ export class OpenAIRealtimeSession {
       const responseCreated = this.sendToOpenAI({
         type: "response.create",
         response: {
-          modalities: ["audio"],
+          modalities: ["text", "audio"],
           instructions: "Say the greeting in a friendly, welcoming tone"
         }
       }, true);
