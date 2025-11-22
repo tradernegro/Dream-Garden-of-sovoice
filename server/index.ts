@@ -102,27 +102,21 @@ app.use((req, res, next) => {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || '5000', 10);
-  server.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true,
-  }, () => {
+  // Remove reusePort option which can cause issues in production
+  server.listen(port, "0.0.0.0", () => {
     log(`serving on port ${port}`);
     
-    // Initialize expensive operations AFTER server starts listening
+    // Initialize operations AFTER server starts listening
     // This ensures health checks pass immediately during deployment
-    // Using setImmediate to ensure the server is fully ready before initialization
     setImmediate(() => {
       (async () => {
         try {
-          // Skip expensive operations in production to prevent timeout
-          const isProduction = process.env.NODE_ENV === "production";
+          // Always initialize system agents (required for both dev and production)
+          await initializeSystemAgents();
           
+          // Only seed sample data in development
+          const isProduction = process.env.NODE_ENV === "production";
           if (!isProduction) {
-            // Initialize system agents in database (permanent agents that survive restarts)
-            await initializeSystemAgents();
-            
-            // Seed sample data ONLY in development
             await seedData();
             
             log("[Init] Background initialization complete");
