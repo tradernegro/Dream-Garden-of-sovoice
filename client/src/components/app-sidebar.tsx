@@ -8,7 +8,8 @@ import {
   Phone,
   BarChart3,
   Settings,
-  PhoneCall
+  PhoneCall,
+  Folder
 } from "lucide-react";
 import { 
   Sidebar, 
@@ -25,7 +26,7 @@ import {
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import type { ChatSession } from "@shared/schema";
+import type { Project } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
@@ -64,18 +65,28 @@ const navigationItems = [
 
 export function AppSidebar() {
   const [location, setLocation] = useLocation();
-  const { data: sessions, isLoading } = useQuery<ChatSession[]>({ 
-    queryKey: ["/api/sessions"],
-    queryFn: () => fetch("/api/sessions?limit=5").then(r => r.json())
+  const { data: projects, isLoading } = useQuery<Project[]>({ 
+    queryKey: ["/api/projects"],
+    queryFn: () => fetch("/api/projects").then(r => r.json())
   });
   
-  const createSessionMutation = useMutation({
-    mutationFn: async (): Promise<ChatSession> => {
-      return apiRequest("POST", "/api/sessions", { title: "New Chat" }) as unknown as Promise<ChatSession>;
+  const createProjectMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/projects", { 
+        name: "New Project", 
+        description: "A new voice agent project",
+        twilioPhoneNumber: "",
+        googleAccountId: null 
+      });
+      return await response.json();
     },
-    onSuccess: (newSession: ChatSession) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sessions"] });
-      setLocation(`/chat?session=${newSession.id}`);
+    onSuccess: (newProject) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      if (newProject && newProject.id) {
+        setLocation(`/projects/${newProject.id}`);
+      } else {
+        console.error("Project creation failed: no ID returned", newProject);
+      }
     },
   });
 
@@ -123,17 +134,17 @@ export function AppSidebar() {
 
         <SidebarSeparator />
 
-        {/* AI Assistant Section */}
+        {/* Projects Section */}
         <SidebarGroup>
           <SidebarGroupLabel className="flex items-center justify-between">
-            <span>AI Assistant</span>
+            <span>Projects</span>
             <Button 
               size="icon"
               variant="ghost"
               className="h-6 w-6"
-              data-testid="button-new-chat-icon"
-              onClick={() => createSessionMutation.mutate()}
-              disabled={createSessionMutation.isPending}
+              data-testid="button-new-project-icon"
+              onClick={() => createProjectMutation.mutate()}
+              disabled={createProjectMutation.isPending}
             >
               <Plus className="h-3 w-3" />
             </Button>
@@ -143,9 +154,8 @@ export function AppSidebar() {
               className="w-full gap-2 mb-3" 
               variant="outline"
               size="sm"
-              data-testid="button-new-chat"
-              onClick={() => createSessionMutation.mutate()}
-              disabled={createSessionMutation.isPending}
+              data-testid="button-start-new-chat"
+              onClick={() => setLocation("/chat")}
             >
               <MessageSquare className="h-4 w-4" />
               Start New Chat
@@ -162,15 +172,15 @@ export function AppSidebar() {
                     </SidebarMenuItem>
                   ))}
                 </>
-              ) : sessions && sessions.length > 0 ? (
-                sessions.map((session) => {
-                  const isActive = location.includes(`session=${session.id}`);
+              ) : projects && projects.length > 0 ? (
+                projects.map((project) => {
+                  const isActive = location.includes(`/projects/${project.id}`);
                   return (
-                    <SidebarMenuItem key={session.id}>
+                    <SidebarMenuItem key={project.id}>
                       <SidebarMenuButton asChild isActive={isActive}>
-                        <Link href={`/chat?session=${session.id}`} data-testid={`link-session-${session.id}`}>
-                          <Sparkles className="h-3 w-3" />
-                          <span className="truncate text-xs">{session.title}</span>
+                        <Link href={`/projects/${project.id}`} data-testid={`link-project-${project.id}`}>
+                          <Folder className="h-3 w-3" />
+                          <span className="truncate text-xs">{project.name}</span>
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
@@ -179,7 +189,7 @@ export function AppSidebar() {
               ) : (
                 <SidebarMenuItem>
                   <div className="px-2 py-2 text-xs text-muted-foreground">
-                    No recent chats
+                    No projects yet
                   </div>
                 </SidebarMenuItem>
               )}
