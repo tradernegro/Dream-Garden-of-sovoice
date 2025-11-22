@@ -9,7 +9,8 @@ import {
   BarChart3,
   Settings,
   PhoneCall,
-  Folder
+  Folder,
+  Smartphone
 } from "lucide-react";
 import { 
   Sidebar, 
@@ -55,6 +56,11 @@ const navigationItems = [
     title: "Analytics",
     icon: BarChart3,
     href: "/analytics",
+  },
+  {
+    title: "Phone Numbers",
+    icon: Smartphone,
+    href: "/phone-numbers",
   },
   {
     title: "Settings",

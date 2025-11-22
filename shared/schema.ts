@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, integer, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, integer, jsonb, decimal } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -68,6 +68,41 @@ export const updateAgentSchema = insertAgentSchema.partial();
 export type InsertAgent = z.infer<typeof insertAgentSchema>;
 export type UpdateAgent = z.infer<typeof updateAgentSchema>;
 export type Agent = typeof agents.$inferSelect;
+
+// Phone Numbers table (for Twilio phone number management)
+export const phoneNumbers = pgTable("phone_numbers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  phoneNumber: text("phone_number").notNull().unique(),
+  friendlyName: text("friendly_name"),
+  projectId: varchar("project_id").references(() => projects.id, { onDelete: "set null" }),
+  capabilities: jsonb("capabilities").$type<{
+    voice: boolean;
+    sms: boolean;
+    mms: boolean;
+    fax: boolean;
+  }>().default({ voice: true, sms: false, mms: false, fax: false }),
+  status: text("status").notNull().default("active"), // active, inactive, suspended
+  monthlyFee: decimal("monthly_fee", { precision: 10, scale: 2 }).default("0.00"),
+  currency: text("currency").default("USD"),
+  region: text("region"),
+  countryCode: text("country_code"),
+  voiceUrl: text("voice_url"),
+  smsUrl: text("sms_url"),
+  lastUsed: timestamp("last_used"),
+  totalCalls: integer("total_calls").default(0),
+  totalMinutes: integer("total_minutes").default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertPhoneNumberSchema = createInsertSchema(phoneNumbers).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertPhoneNumber = z.infer<typeof insertPhoneNumberSchema>;
+export type PhoneNumber = typeof phoneNumbers.$inferSelect;
 
 // Settings table (for global app settings)
 export const settings = pgTable("settings", {
