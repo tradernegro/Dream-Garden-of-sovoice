@@ -88,6 +88,22 @@ export class OpenAIRealtimeSession {
           }
         }
       });
+      
+      // Trigger initial audio greeting after session is configured  
+      setTimeout(() => {
+        console.log(`[Session ${this.callId}] Triggering initial audio greeting`);
+        
+        // Simply request a response without creating a message first
+        // This should trigger the AI to generate both text and audio
+        this.sendToOpenAI({
+          type: "response.create",
+          response: {
+            modalities: ["text", "audio"]
+          }
+        });
+        
+        console.log(`[Session ${this.callId}] Initial greeting request sent`);
+      }, 500); // Small delay to ensure session is fully ready
     });
 
     this.openaiWs.on("message", (data: Buffer) => {
@@ -179,12 +195,17 @@ export class OpenAIRealtimeSession {
 
       case "input_audio_buffer.speech_stopped":
         console.log(`[Session ${this.callId}] User stopped speaking - committing buffer and creating response`);
-        // Explicitly commit the buffer and create a response
+        // Explicitly commit the buffer and create a response with audio
         this.sendToOpenAI({
           type: "input_audio_buffer.commit"
         });
+        // Force audio response generation - must include text with audio!
         this.sendToOpenAI({
-          type: "response.create"
+          type: "response.create",
+          response: {
+            modalities: ["text", "audio"],
+            instructions: "Respond naturally to what the user just said."
+          }
         });
         break;
 
