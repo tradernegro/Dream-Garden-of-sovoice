@@ -831,6 +831,8 @@ export class DbStorage implements IStorage {
           friendlyName: phoneNumbers.friendlyName,
           projectId: phoneNumbers.projectId,
           projectName: projects.name,
+          agentId: phoneNumbers.agentId,
+          agentName: agents.name,
           capabilities: phoneNumbers.capabilities,
           status: phoneNumbers.status,
           monthlyFee: phoneNumbers.monthlyFee,
@@ -842,11 +844,13 @@ export class DbStorage implements IStorage {
           lastUsed: phoneNumbers.lastUsed,
           totalCalls: phoneNumbers.totalCalls,
           totalMinutes: phoneNumbers.totalMinutes,
+          metadata: phoneNumbers.metadata,
           createdAt: phoneNumbers.createdAt,
           updatedAt: phoneNumbers.updatedAt,
         })
         .from(phoneNumbers)
         .leftJoin(projects, eq(phoneNumbers.projectId, projects.id))
+        .leftJoin(agents, eq(phoneNumbers.agentId, agents.id))
         .orderBy(desc(phoneNumbers.createdAt));
       
       // Map results to match PhoneNumber type but with projectName added
@@ -869,6 +873,8 @@ export class DbStorage implements IStorage {
           friendlyName: phoneNumbers.friendlyName,
           projectId: phoneNumbers.projectId,
           projectName: projects.name,
+          agentId: phoneNumbers.agentId,
+          agentName: agents.name,
           capabilities: phoneNumbers.capabilities,
           status: phoneNumbers.status,
           monthlyFee: phoneNumbers.monthlyFee,
@@ -880,11 +886,13 @@ export class DbStorage implements IStorage {
           lastUsed: phoneNumbers.lastUsed,
           totalCalls: phoneNumbers.totalCalls,
           totalMinutes: phoneNumbers.totalMinutes,
+          metadata: phoneNumbers.metadata,
           createdAt: phoneNumbers.createdAt,
           updatedAt: phoneNumbers.updatedAt,
         })
         .from(phoneNumbers)
         .leftJoin(projects, eq(phoneNumbers.projectId, projects.id))
+        .leftJoin(agents, eq(phoneNumbers.agentId, agents.id))
         .where(eq(phoneNumbers.id, id))
         .limit(1);
       
@@ -912,6 +920,8 @@ export class DbStorage implements IStorage {
           friendlyName: phoneNumbers.friendlyName,
           projectId: phoneNumbers.projectId,
           projectName: projects.name,
+          agentId: phoneNumbers.agentId,
+          agentName: agents.name,
           capabilities: phoneNumbers.capabilities,
           status: phoneNumbers.status,
           monthlyFee: phoneNumbers.monthlyFee,
@@ -923,11 +933,13 @@ export class DbStorage implements IStorage {
           lastUsed: phoneNumbers.lastUsed,
           totalCalls: phoneNumbers.totalCalls,
           totalMinutes: phoneNumbers.totalMinutes,
+          metadata: phoneNumbers.metadata,
           createdAt: phoneNumbers.createdAt,
           updatedAt: phoneNumbers.updatedAt,
         })
         .from(phoneNumbers)
         .leftJoin(projects, eq(phoneNumbers.projectId, projects.id))
+        .leftJoin(agents, eq(phoneNumbers.agentId, agents.id))
         .where(eq(phoneNumbers.phoneNumber, number))
         .limit(1);
       
@@ -955,6 +967,8 @@ export class DbStorage implements IStorage {
           friendlyName: phoneNumbers.friendlyName,
           projectId: phoneNumbers.projectId,
           projectName: projects.name,
+          agentId: phoneNumbers.agentId,
+          agentName: agents.name,
           capabilities: phoneNumbers.capabilities,
           status: phoneNumbers.status,
           monthlyFee: phoneNumbers.monthlyFee,
@@ -966,11 +980,13 @@ export class DbStorage implements IStorage {
           lastUsed: phoneNumbers.lastUsed,
           totalCalls: phoneNumbers.totalCalls,
           totalMinutes: phoneNumbers.totalMinutes,
+          metadata: phoneNumbers.metadata,
           createdAt: phoneNumbers.createdAt,
           updatedAt: phoneNumbers.updatedAt,
         })
         .from(phoneNumbers)
         .leftJoin(projects, eq(phoneNumbers.projectId, projects.id))
+        .leftJoin(agents, eq(phoneNumbers.agentId, agents.id))
         .where(eq(phoneNumbers.projectId, projectId))
         .orderBy(desc(phoneNumbers.createdAt));
       
