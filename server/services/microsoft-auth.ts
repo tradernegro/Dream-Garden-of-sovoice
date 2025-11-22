@@ -18,6 +18,7 @@ const SCOPES = [
   "https://graph.microsoft.com/Mail.Send",
   "https://graph.microsoft.com/Mail.ReadWrite",
   "https://graph.microsoft.com/User.Read",
+  "offline_access", // For refresh token to persist session
 ];
 
 // Scopes for application permissions (client credentials flow)
@@ -29,7 +30,10 @@ export class MicrosoftAuthService {
   private msalClient: ConfidentialClientApplication;
   private accessToken: string | null = null;
   private tokenExpiry: Date | null = null;
-  private targetMailbox: string = "info@sovoice.ai";
+  private refreshToken: string | null = null;
+  private targetMailbox: string | null = null;
+  private authType: "delegated" | "application" | null = null;
+  private userEmail: string | null = null;
 
   constructor() {
     this.msalClient = new ConfidentialClientApplication(msalConfig);
@@ -53,7 +57,7 @@ export class MicrosoftAuthService {
   }
 
   // Exchange authorization code for access token
-  async acquireTokenByCode(code: string, redirectUri: string): Promise<string> {
+  async acquireTokenByCode(code: string, redirectUri: string): Promise<{ accessToken: string; userEmail: string }> {
     const tokenRequest = {
       code,
       scopes: SCOPES,
@@ -65,7 +69,17 @@ export class MicrosoftAuthService {
       if (response && response.accessToken) {
         this.accessToken = response.accessToken;
         this.tokenExpiry = response.expiresOn || null;
-        return response.accessToken;
+        this.refreshToken = response.refreshToken || null;
+        this.authType = "delegated";
+        
+        // Extract user email from the token response
+        this.userEmail = response.account?.username || response.account?.name || null;
+        this.targetMailbox = null; // Clear targetMailbox for delegated auth
+        
+        return {
+          accessToken: response.accessToken,
+          userEmail: this.userEmail || ""
+        };
       }
       throw new Error("No access token received");
     } catch (error) {
@@ -95,6 +109,8 @@ export class MicrosoftAuthService {
         this.tokenExpiry = response.expiresOn || null;
         // Store the target mailbox for use in API calls
         this.targetMailbox = targetMailbox;
+        this.authType = "application";
+        this.userEmail = null;
         return response.accessToken;
       }
       throw new Error("No access token received");
@@ -102,6 +118,15 @@ export class MicrosoftAuthService {
       console.error("Error acquiring app token:", error);
       throw new Error("Failed to acquire application access token");
     }
+  }
+
+  // Get current auth info
+  getAuthInfo(): { authType: string | null; email: string | null; hasToken: boolean } {
+    return {
+      authType: this.authType,
+      email: this.authType === "delegated" ? this.userEmail : this.targetMailbox,
+      hasToken: !!this.accessToken && (!this.tokenExpiry || this.tokenExpiry > new Date())
+    };
   }
 
   // Get or refresh access token
@@ -151,9 +176,9 @@ export class MicrosoftAuthService {
     try {
       const client = await this.getGraphClient();
       
-      // Use /users/{mailbox} for application permissions
-      // Use /me for delegated permissions
-      const basePath = this.targetMailbox ? `/users/${this.targetMailbox}` : "/me";
+      // Use /me for delegated permissions (OAuth login)
+      // Use /users/{mailbox} for application permissions (app auth)
+      const basePath = this.authType === "delegated" ? "/me" : `/users/${this.targetMailbox || "info@sovoice.ai"}`;
       let endpoint = `${basePath}/mailFolders`;
       
       // Map folder names to Graph API endpoints

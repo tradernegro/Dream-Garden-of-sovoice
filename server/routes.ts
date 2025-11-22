@@ -1640,18 +1640,50 @@ AGENT_CREATE:
       const protocol = domain.includes('localhost') ? 'http' : 'https';
       const redirectUri = `${protocol}://${domain}/api/microsoft/callback`;
       
-      const accessToken = await microsoftAuth.acquireTokenByCode(code, redirectUri);
+      // Get token and user email
+      const tokenResult = await microsoftAuth.acquireTokenByCode(code, redirectUri);
       
       // Store the connection status
       await storage.setSetting("microsoft_connected", true);
       await storage.setSetting("microsoft_token_acquired", new Date().toISOString());
+      await storage.setSetting("microsoft_auth_type", "delegated");
       
-      // Get user profile
-      const profile = await microsoftAuth.getUserProfile();
-      await storage.setSetting("microsoft_email", profile.mail || profile.userPrincipalName);
+      // Get user profile for additional details
+      try {
+        const profile = await microsoftAuth.getUserProfile();
+        const userEmail = profile.mail || profile.userPrincipalName || tokenResult.userEmail;
+        await storage.setSetting("microsoft_email", userEmail);
+        
+        // Automatically sync emails after successful login
+        console.log("Auto-syncing emails for user:", userEmail);
+        const outlookEmails = await microsoftAuth.fetchEmails("inbox", 50);
+        
+        let syncedCount = 0;
+        for (const outlookEmail of outlookEmails) {
+          const emailData = microsoftAuth.convertToEmail(outlookEmail);
+          
+          // Check if email already exists
+          const existing = await db.select().from(emails)
+            .where(eq(emails.messageId, outlookEmail.id))
+            .limit(1);
+          
+          if (existing.length === 0) {
+            await storage.createEmail({
+              ...emailData,
+              messageId: outlookEmail.id,
+            } as any);
+            syncedCount++;
+          }
+        }
+        
+        console.log(`Auto-sync completed: ${syncedCount} new emails imported`);
+      } catch (syncError) {
+        console.error("Auto-sync failed:", syncError);
+        // Don't fail the whole OAuth process if sync fails
+      }
       
       // Redirect to emails page with success
-      res.redirect("/emails?connected=true");
+      res.redirect("/emails?connected=true&synced=true");
     } catch (error) {
       console.error("OAuth callback error:", error);
       res.redirect("/emails?error=auth_failed");

@@ -108,11 +108,19 @@ export default function EmailManagement() {
     // Check for connection callback
     const params = new URLSearchParams(window.location.search);
     if (params.get("connected") === "true") {
+      const wasSynced = params.get("synced") === "true";
       toast({
-        title: "Connected Successfully",
-        description: "Your Microsoft Outlook account has been connected.",
+        title: "Erfolgreich angemeldet!",
+        description: wasSynced 
+          ? "Ihr Outlook-Konto wurde verbunden und E-Mails wurden synchronisiert." 
+          : "Ihr Outlook-Konto wurde erfolgreich verbunden.",
       });
-      syncEmails();
+      if (!wasSynced) {
+        syncEmails();
+      } else {
+        // E-Mails wurden bereits automatisch synchronisiert, nur neu laden
+        refetch();
+      }
       // Clean up URL
       window.history.replaceState({}, document.title, "/emails");
     } else if (params.get("error") === "auth_failed") {
@@ -554,7 +562,7 @@ export default function EmailManagement() {
                   <Button 
                     className="w-full gap-2"
                     size="sm"
-                    variant="outline"
+                    variant="default"
                     onClick={connectToMicrosoft}
                     disabled={isConnecting}
                     data-testid="button-connect-microsoft"
@@ -562,12 +570,12 @@ export default function EmailManagement() {
                     {isConnecting ? (
                       <>
                         <RefreshCw className="h-3 w-3 animate-spin" />
-                        Connecting...
+                        Verbindung wird hergestellt...
                       </>
                     ) : (
                       <>
-                        <Mail className="h-3 w-3" />
-                        OAuth (May be blocked)
+                        <ExternalLink className="h-3 w-3" />
+                        Mit Outlook anmelden
                       </>
                     )}
                   </Button>
