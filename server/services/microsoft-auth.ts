@@ -68,6 +68,13 @@ export class MicrosoftAuthService {
     }
   }
 
+  // Set manual access token
+  setManualAccessToken(token: string, userEmail: string): void {
+    this.accessToken = token;
+    // Set token expiry to 1 hour from now (typical for Microsoft tokens)
+    this.tokenExpiry = new Date(Date.now() + 60 * 60 * 1000);
+  }
+
   // Get or refresh access token
   async getAccessToken(): Promise<string> {
     // Check if token exists and is still valid

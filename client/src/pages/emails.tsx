@@ -60,6 +60,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert";
 import type { Email } from "@shared/schema";
 
 // Email folders
@@ -78,6 +83,11 @@ export default function EmailManagement() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isComposeOpen, setIsComposeOpen] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isManualTokenOpen, setIsManualTokenOpen] = useState(false);
+  const [manualTokenData, setManualTokenData] = useState({
+    accessToken: "",
+    userEmail: ""
+  });
   const [connectionStatus, setConnectionStatus] = useState<{
     connected: boolean;
     email: string | null;
@@ -144,6 +154,52 @@ export default function EmailManagement() {
         description: "Failed to initiate Microsoft connection. Please try again.",
         variant: "destructive",
       });
+      setIsConnecting(false);
+    }
+  };
+
+  const submitManualToken = async () => {
+    if (!manualTokenData.accessToken || !manualTokenData.userEmail) {
+      toast({
+        title: "Missing Information",
+        description: "Please provide both access token and email address",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsConnecting(true);
+    try {
+      const response = await apiRequest("POST", "/api/microsoft/manual-token", manualTokenData);
+      const result = await response.json();
+      
+      if (result.success) {
+        setConnectionStatus({
+          connected: true,
+          email: manualTokenData.userEmail,
+          tokenAcquired: new Date().toISOString()
+        });
+        setIsManualTokenOpen(false);
+        setManualTokenData({ accessToken: "", userEmail: "" });
+        
+        toast({
+          title: "Connected Successfully",
+          description: `Connected to ${manualTokenData.userEmail}`,
+        });
+        
+        // Sync emails after connection
+        await syncEmails();
+      } else {
+        throw new Error(result.error || "Failed to save token");
+      }
+    } catch (error) {
+      console.error("Failed to save manual token:", error);
+      toast({
+        title: "Connection Failed",
+        description: "Failed to configure access token. Please check your token and try again.",
+        variant: "destructive",
+      });
+    } finally {
       setIsConnecting(false);
     }
   };
@@ -442,6 +498,24 @@ export default function EmailManagement() {
                   <Button 
                     className="w-full gap-2"
                     size="sm"
+                    onClick={() => setIsManualTokenOpen(true)}
+                    data-testid="button-manual-token"
+                  >
+                    <Settings2 className="h-3 w-3" />
+                    Manual Token Configuration
+                  </Button>
+                  <div className="relative">
+                    <div className="absolute inset-0 flex items-center">
+                      <span className="w-full border-t" />
+                    </div>
+                    <div className="relative flex justify-center text-xs uppercase">
+                      <span className="bg-background px-2 text-muted-foreground">or</span>
+                    </div>
+                  </div>
+                  <Button 
+                    className="w-full gap-2"
+                    size="sm"
+                    variant="outline"
                     onClick={connectToMicrosoft}
                     disabled={isConnecting}
                     data-testid="button-connect-microsoft"
@@ -454,7 +528,7 @@ export default function EmailManagement() {
                     ) : (
                       <>
                         <Mail className="h-3 w-3" />
-                        Connect Microsoft Account
+                        OAuth (May be blocked)
                       </>
                     )}
                   </Button>
@@ -778,6 +852,92 @@ export default function EmailManagement() {
             >
               <Send className="h-4 w-4 mr-2" />
               Send
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Manual Token Configuration Dialog */}
+      <Dialog open={isManualTokenOpen} onOpenChange={setIsManualTokenOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Manual Token Configuration</DialogTitle>
+            <DialogDescription>
+              Configure your Microsoft Outlook access token manually
+            </DialogDescription>
+          </DialogHeader>
+          
+          <Alert>
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>How to get your Access Token</AlertTitle>
+            <AlertDescription className="space-y-2 mt-2">
+              <ol className="list-decimal ml-4 space-y-1 text-sm">
+                <li>Go to <a href="https://developer.microsoft.com/en-us/graph/graph-explorer" target="_blank" className="text-primary hover:underline">Microsoft Graph Explorer</a></li>
+                <li>Sign in with your Microsoft account (info@sovoice.ai)</li>
+                <li>Click on "Access Token" tab on the left sidebar</li>
+                <li>Copy the entire access token</li>
+                <li>Paste it below along with your email address</li>
+              </ol>
+              <p className="text-sm text-muted-foreground mt-2">
+                Note: Access tokens expire after about 1 hour. You'll need to refresh it periodically.
+              </p>
+            </AlertDescription>
+          </Alert>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="userEmail">Email Address</Label>
+              <Input
+                id="userEmail"
+                type="email"
+                placeholder="info@sovoice.ai"
+                value={manualTokenData.userEmail}
+                onChange={(e) => setManualTokenData({ ...manualTokenData, userEmail: e.target.value })}
+                data-testid="input-user-email"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="accessToken">Access Token</Label>
+              <Textarea
+                id="accessToken"
+                placeholder="Paste your Microsoft Graph access token here..."
+                value={manualTokenData.accessToken}
+                onChange={(e) => setManualTokenData({ ...manualTokenData, accessToken: e.target.value })}
+                rows={6}
+                className="font-mono text-xs"
+                data-testid="textarea-access-token"
+              />
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setIsManualTokenOpen(false);
+                setManualTokenData({ accessToken: "", userEmail: "" });
+              }}
+              data-testid="button-cancel"
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={submitManualToken}
+              disabled={!manualTokenData.accessToken || !manualTokenData.userEmail || isConnecting}
+              data-testid="button-save-token"
+            >
+              {isConnecting ? (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  Connecting...
+                </>
+              ) : (
+                <>
+                  <Check className="h-4 w-4 mr-2" />
+                  Save & Connect
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1675,6 +1675,35 @@ AGENT_CREATE:
       res.status(500).json({ error: "Failed to get connection status" });
     }
   });
+
+  // Manual token configuration
+  app.post("/api/microsoft/manual-token", async (req: Request, res: Response) => {
+    try {
+      const { accessToken, userEmail } = req.body;
+      
+      if (!accessToken || !userEmail) {
+        return res.status(400).json({ error: "Access token and email are required" });
+      }
+      
+      const { microsoftAuth } = await import("./services/microsoft-auth");
+      
+      // Set the manual access token
+      microsoftAuth.setManualAccessToken(accessToken, userEmail);
+      
+      // Store the connection status
+      await storage.setSetting("microsoft_connected", true);
+      await storage.setSetting("microsoft_token_acquired", new Date().toISOString());
+      await storage.setSetting("microsoft_email", userEmail);
+      
+      res.json({ 
+        success: true,
+        message: "Access token configured successfully"
+      });
+    } catch (error) {
+      console.error("Failed to set manual token:", error);
+      res.status(500).json({ error: "Failed to configure access token" });
+    }
+  });
   
   // Sync emails from Outlook
   app.post("/api/microsoft/sync", async (req: Request, res: Response) => {
