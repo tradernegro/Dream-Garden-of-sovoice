@@ -11,7 +11,7 @@ import { useWebSocket } from "@/hooks/use-websocket";
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/dashboard";
 import Chat from "@/pages/chat";
-import CallHistory from "@/pages/call-history";
+import CallsManagement from "@/pages/calls";
 import CallDetail from "@/pages/call-detail";
 import Agents from "@/pages/agents";
 import Analytics from "@/pages/analytics";
@@ -26,7 +26,7 @@ function Router() {
     <Switch>
       <Route path="/" component={Dashboard} />
       <Route path="/chat" component={Chat} />
-      <Route path="/calls" component={CallHistory} />
+      <Route path="/calls" component={CallsManagement} />
       <Route path="/calls/:id" component={CallDetail} />
       <Route path="/projects" component={Projects} />
       <Route path="/projects/:id" component={ProjectDetail} />

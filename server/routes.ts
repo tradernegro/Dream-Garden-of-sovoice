@@ -459,6 +459,281 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Initiate outbound call
+  app.post("/api/calls/outbound", async (req: Request, res: Response) => {
+    try {
+      const { phoneNumber, agentId } = req.body;
+      
+      if (!phoneNumber) {
+        return res.status(400).json({ error: "Phone number is required" });
+      }
+
+      // Create call record
+      const call = await storage.createCall({
+        phoneNumber,
+        direction: "outbound",
+        status: "queued",
+        agentId: agentId || null,
+      });
+
+      // Initiate Twilio call
+      try {
+        const twilioClient = await getTwilioClient();
+        const fromNumber = await getTwilioFromPhoneNumber();
+        
+        const baseUrl = process.env.REPLIT_DOMAINS 
+          ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
+          : 'http://localhost:5000';
+        
+        const twilioCall = await twilioClient.calls.create({
+          to: phoneNumber,
+          from: fromNumber,
+          url: `${baseUrl}/api/twilio/voice?callId=${call.id}`,
+          statusCallback: `${baseUrl}/api/twilio/status`,
+          statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
+          record: true, // Enable recording
+          recordingStatusCallback: `${baseUrl}/api/twilio/recording-status`,
+        });
+
+        // Update call with Twilio SID
+        const updatedCall = await storage.updateCall(call.id, {
+          metadata: { twilioSid: twilioCall.sid } as any,
+          status: "in-progress",
+        });
+
+        // Broadcast real-time update
+        broadcastToClients("call:created", updatedCall);
+        
+        res.json(updatedCall);
+      } catch (twilioError) {
+        console.error("Twilio error:", twilioError);
+        await storage.updateCall(call.id, { status: "failed" });
+        res.status(500).json({ error: "Failed to initiate call" });
+      }
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  // End active call
+  app.post("/api/calls/:id/end", async (req: Request, res: Response) => {
+    try {
+      const callId = req.params.id;
+      const call = await storage.getCall(callId);
+      
+      if (!call) {
+        return res.status(404).json({ error: "Call not found" });
+      }
+
+      // Get Twilio SID from metadata
+      const twilioSid = (call.metadata as any)?.twilioSid;
+      
+      if (twilioSid) {
+        try {
+          const twilioClient = await getTwilioClient();
+          
+          // End the Twilio call
+          await twilioClient.calls(twilioSid).update({ status: 'completed' });
+        } catch (twilioError) {
+          console.error("Error ending Twilio call:", twilioError);
+        }
+      }
+
+      // Update call status
+      const updatedCall = await storage.updateCall(callId, {
+        status: "completed",
+      });
+
+      // Broadcast real-time update
+      broadcastToClients("call:ended", updatedCall);
+      
+      res.json(updatedCall);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Transfer call
+  app.post("/api/calls/:id/transfer", async (req: Request, res: Response) => {
+    try {
+      const callId = req.params.id;
+      const { transferTo, transferType = "blind" } = req.body;
+      
+      if (!transferTo) {
+        return res.status(400).json({ error: "Transfer destination is required" });
+      }
+
+      const call = await storage.getCall(callId);
+      
+      if (!call) {
+        return res.status(404).json({ error: "Call not found" });
+      }
+
+      const twilioSid = (call.metadata as any)?.twilioSid;
+      
+      if (!twilioSid) {
+        return res.status(400).json({ error: "No active Twilio call found" });
+      }
+
+      try {
+        const twilioClient = await getTwilioClient();
+        const fromNumber = await getTwilioFromPhoneNumber();
+        
+        const baseUrl = process.env.REPLIT_DOMAINS 
+          ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
+          : 'http://localhost:5000';
+
+        if (transferType === "blind") {
+          // Blind transfer - immediately redirect the call
+          await twilioClient.calls(twilioSid).update({
+            url: `${baseUrl}/api/twilio/transfer?to=${encodeURIComponent(transferTo)}`,
+            method: 'POST'
+          });
+        } else {
+          // Attended transfer - create conference and add parties
+          // This is more complex and requires conference management
+          // For now, we'll implement blind transfer
+          await twilioClient.calls(twilioSid).update({
+            url: `${baseUrl}/api/twilio/transfer?to=${encodeURIComponent(transferTo)}`,
+            method: 'POST'
+          });
+        }
+
+        // Update call metadata
+        const updatedCall = await storage.updateCall(callId, {
+          metadata: { 
+            ...(call.metadata as any),
+            transferredTo: transferTo,
+            transferType,
+            transferredAt: new Date().toISOString()
+          } as any,
+        });
+
+        // Broadcast real-time update
+        broadcastToClients("call:transferred", updatedCall);
+        
+        res.json({ success: true, transferredTo: transferTo });
+      } catch (twilioError) {
+        console.error("Error transferring call:", twilioError);
+        res.status(500).json({ error: "Failed to transfer call" });
+      }
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Schedule a call
+  app.post("/api/calls/schedule", async (req: Request, res: Response) => {
+    try {
+      const { phoneNumber, scheduledFor, note, agentId } = req.body;
+      
+      if (!phoneNumber || !scheduledFor) {
+        return res.status(400).json({ error: "Phone number and scheduled time are required" });
+      }
+
+      // Create a scheduled call record
+      const call = await storage.createCall({
+        phoneNumber,
+        direction: "outbound",
+        status: "scheduled",
+        agentId: agentId || null,
+        metadata: {
+          scheduledFor,
+          note: note || "",
+          createdBy: "user", // You might want to get this from session
+        } as any,
+      });
+
+      // In a real implementation, you would:
+      // 1. Create a scheduled job/cron to initiate the call at the scheduled time
+      // 2. Send reminder notifications
+      // 3. Handle timezone conversions
+      
+      // For now, we'll just return the scheduled call
+      broadcastToClients("call:scheduled", call);
+      
+      res.json(call);
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  // Handle call transfer TwiML
+  app.post("/api/twilio/transfer", async (req: Request, res: Response) => {
+    try {
+      const { to } = req.query;
+      
+      if (!to) {
+        res.type('text/xml');
+        res.send(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">Unable to transfer call. No destination provided.</Say>
+  <Hangup/>
+</Response>`);
+        return;
+      }
+
+      // Return TwiML to transfer the call
+      res.type('text/xml');
+      res.send(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">Transferring your call. Please hold.</Say>
+  <Dial>${to}</Dial>
+</Response>`);
+    } catch (error) {
+      console.error("Transfer TwiML error:", error);
+      res.type('text/xml');
+      res.send(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">Sorry, we could not transfer your call. Please try again later.</Say>
+  <Hangup/>
+</Response>`);
+    }
+  });
+
+  // Handle recording status callback
+  app.post("/api/twilio/recording-status", async (req: Request, res: Response) => {
+    try {
+      const { CallSid, RecordingUrl, RecordingSid, RecordingStatus } = req.body;
+      
+      console.log('[Recording Status]', {
+        callSid: CallSid,
+        recordingSid: RecordingSid,
+        status: RecordingStatus,
+        url: RecordingUrl
+      });
+
+      if (RecordingStatus === 'completed' && RecordingUrl) {
+        // Find call by Twilio SID
+        const calls = await storage.getCalls();
+        const call = calls.find(c => (c.metadata as any)?.twilioSid === CallSid);
+        
+        if (call) {
+          // Update call with recording URL
+          await storage.updateCall(call.id, {
+            recording: RecordingUrl,
+            metadata: {
+              ...(call.metadata as any),
+              recordingSid: RecordingSid,
+              recordingUrl: RecordingUrl
+            } as any
+          });
+
+          // Broadcast update
+          broadcastToClients("call:recording-ready", {
+            callId: call.id,
+            recordingUrl: RecordingUrl
+          });
+        }
+      }
+
+      res.status(200).send('OK');
+    } catch (error) {
+      console.error("Recording status callback error:", error);
+      res.status(500).send('Error');
+    }
+  });
+
   // ==================== AGENT ROUTES ====================
 
   // Get all agents
@@ -505,6 +780,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Agent not found" });
       }
       res.json(agent);
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  });
+
+  // Update agent status (for call center agent availability)
+  app.patch("/api/agents/:id/status", async (req: Request, res: Response) => {
+    try {
+      const { status } = req.body;
+      const validStatuses = ['available', 'busy', 'on-call', 'break', 'offline'];
+      
+      if (!status || !validStatuses.includes(status)) {
+        return res.status(400).json({ 
+          error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` 
+        });
+      }
+
+      const agent = await storage.getAgent(req.params.id);
+      if (!agent) {
+        return res.status(404).json({ error: "Agent not found" });
+      }
+
+      // Update agent metadata with status
+      const updatedAgent = await storage.updateAgent(req.params.id, {
+        metadata: {
+          ...(agent.metadata as any),
+          status,
+          statusUpdatedAt: new Date().toISOString()
+        } as any
+      });
+
+      // Broadcast status update
+      broadcastToClients("agent:status-updated", {
+        agentId: req.params.id,
+        status,
+        timestamp: new Date().toISOString()
+      });
+
+      res.json(updatedAgent);
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
     }
