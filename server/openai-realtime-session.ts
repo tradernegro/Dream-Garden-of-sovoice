@@ -98,6 +98,10 @@ export class OpenAIRealtimeSession {
       case "start":
         this.streamSid = message.start.streamSid;
         console.log(`[Session ${this.callId}] Twilio stream started, streamSid: ${this.streamSid}`);
+        
+        // Send initial greeting when stream is ready
+        // Agent speaks first on all calls (inbound and outbound)
+        this.sendInitialGreeting();
         break;
 
       case "media":
@@ -281,6 +285,34 @@ export class OpenAIRealtimeSession {
         }
         break;
     }
+  }
+
+  private sendInitialGreeting() {
+    console.log(`[Session ${this.callId}] Sending initial greeting - agent speaks first`);
+    
+    // Create a conversation item with the greeting
+    this.sendToOpenAI({
+      type: "conversation.item.create",
+      item: {
+        type: "message",
+        role: "assistant",
+        content: [{
+          type: "input_text",
+          text: "Hello! How can I help you today?"
+        }]
+      }
+    });
+    
+    // Generate the audio response for the greeting
+    setTimeout(() => {
+      this.sendToOpenAI({
+        type: "response.create",
+        response: {
+          modalities: ["audio"],
+          instructions: "Say the greeting in a friendly, welcoming tone"
+        }
+      });
+    }, 100); // Small delay to ensure the item is created first
   }
 
   private sendToOpenAI(message: any) {

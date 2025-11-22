@@ -99,8 +99,8 @@ export class ElevenLabsRealtimeSession {
         this.streamSid = message.start.streamSid;
         console.log(`[ElevenLabs Session ${this.callId}] Twilio stream started, streamSid: ${this.streamSid}`);
         
-        // Now that stream is ready, send the initial greeting
-        console.log(`[ElevenLabs Session ${this.callId}] Stream ready, sending greeting now...`);
+        // Agent always speaks first on both inbound and outbound calls
+        console.log(`[ElevenLabs Session ${this.callId}] Stream ready, agent speaks first - sending greeting now...`);
         await this.sendGreeting();
         break;
 
