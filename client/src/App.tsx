@@ -18,6 +18,7 @@ import Analytics from "@/pages/analytics";
 import Settings from "@/pages/settings";
 import Projects from "@/pages/projects";
 import ProjectDetail from "@/pages/project-detail";
+import PhoneNumbers from "@/pages/phone-numbers";
 
 function Router() {
   return (
@@ -30,6 +31,7 @@ function Router() {
       <Route path="/projects/:id" component={ProjectDetail} />
       <Route path="/agents" component={Agents} />
       <Route path="/analytics" component={Analytics} />
+      <Route path="/phone-numbers" component={PhoneNumbers} />
       <Route path="/settings" component={Settings} />
       <Route component={NotFound} />
     </Switch>

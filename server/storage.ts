@@ -14,6 +14,7 @@ import {
   type ProjectWorkflow, type InsertProjectWorkflow,
   type ProjectAgent, type InsertProjectAgent,
   type ProjectApiKey, type InsertProjectApiKey,
+  type PhoneNumber, type InsertPhoneNumber,
   calls,
   agents,
   settings,
@@ -26,7 +27,8 @@ import {
   projectPipelines,
   projectWorkflows,
   projectAgents,
-  projectApiKeys
+  projectApiKeys,
+  phoneNumbers
 } from "@shared/schema";
 
 export interface IStorage {
@@ -108,6 +110,15 @@ export interface IStorage {
   getProjectApiKeys(projectId: string): Promise<ProjectApiKey[]>;
   addApiKeyToProject(projectApiKey: InsertProjectApiKey): Promise<ProjectApiKey>;
   removeApiKeyFromProject(projectId: string, apiKeyId: string): Promise<boolean>;
+  
+  // Phone Number methods
+  getPhoneNumbers(): Promise<PhoneNumber[]>;
+  getPhoneNumber(id: string): Promise<PhoneNumber | undefined>;
+  getPhoneNumberByNumber(phoneNumber: string): Promise<PhoneNumber | undefined>;
+  getPhoneNumbersByProject(projectId: string): Promise<PhoneNumber[]>;
+  createPhoneNumber(phoneNumber: InsertPhoneNumber): Promise<PhoneNumber>;
+  updatePhoneNumber(id: string, phoneNumber: Partial<InsertPhoneNumber>): Promise<PhoneNumber | undefined>;
+  deletePhoneNumber(id: string): Promise<boolean>;
 }
 
 export class DbStorage implements IStorage {
@@ -805,6 +816,215 @@ export class DbStorage implements IStorage {
       return result.length > 0;
     } catch (error) {
       console.error('[DbStorage] Error removing API key from project:', error);
+      return false;
+    }
+  }
+
+  // Phone Number methods
+  async getPhoneNumbers(): Promise<PhoneNumber[]> {
+    try {
+      // Join with projects to include project names
+      const result = await db
+        .select({
+          id: phoneNumbers.id,
+          phoneNumber: phoneNumbers.phoneNumber,
+          friendlyName: phoneNumbers.friendlyName,
+          projectId: phoneNumbers.projectId,
+          projectName: projects.name,
+          capabilities: phoneNumbers.capabilities,
+          status: phoneNumbers.status,
+          monthlyFee: phoneNumbers.monthlyFee,
+          currency: phoneNumbers.currency,
+          region: phoneNumbers.region,
+          countryCode: phoneNumbers.countryCode,
+          voiceUrl: phoneNumbers.voiceUrl,
+          smsUrl: phoneNumbers.smsUrl,
+          lastUsed: phoneNumbers.lastUsed,
+          totalCalls: phoneNumbers.totalCalls,
+          totalMinutes: phoneNumbers.totalMinutes,
+          createdAt: phoneNumbers.createdAt,
+          updatedAt: phoneNumbers.updatedAt,
+        })
+        .from(phoneNumbers)
+        .leftJoin(projects, eq(phoneNumbers.projectId, projects.id))
+        .orderBy(desc(phoneNumbers.createdAt));
+      
+      // Map results to match PhoneNumber type but with projectName added
+      return result.map(row => ({
+        ...row,
+        projectName: row.projectName || undefined
+      })) as any;
+    } catch (error) {
+      console.error('[DbStorage] Error getting phone numbers:', error);
+      return [];
+    }
+  }
+
+  async getPhoneNumber(id: string): Promise<PhoneNumber | undefined> {
+    try {
+      const result = await db
+        .select({
+          id: phoneNumbers.id,
+          phoneNumber: phoneNumbers.phoneNumber,
+          friendlyName: phoneNumbers.friendlyName,
+          projectId: phoneNumbers.projectId,
+          projectName: projects.name,
+          capabilities: phoneNumbers.capabilities,
+          status: phoneNumbers.status,
+          monthlyFee: phoneNumbers.monthlyFee,
+          currency: phoneNumbers.currency,
+          region: phoneNumbers.region,
+          countryCode: phoneNumbers.countryCode,
+          voiceUrl: phoneNumbers.voiceUrl,
+          smsUrl: phoneNumbers.smsUrl,
+          lastUsed: phoneNumbers.lastUsed,
+          totalCalls: phoneNumbers.totalCalls,
+          totalMinutes: phoneNumbers.totalMinutes,
+          createdAt: phoneNumbers.createdAt,
+          updatedAt: phoneNumbers.updatedAt,
+        })
+        .from(phoneNumbers)
+        .leftJoin(projects, eq(phoneNumbers.projectId, projects.id))
+        .where(eq(phoneNumbers.id, id))
+        .limit(1);
+      
+      if (result.length === 0) {
+        return undefined;
+      }
+
+      // Map result to match PhoneNumber type but with projectName added
+      return {
+        ...result[0],
+        projectName: result[0].projectName || undefined
+      } as any;
+    } catch (error) {
+      console.error('[DbStorage] Error getting phone number:', error);
+      return undefined;
+    }
+  }
+
+  async getPhoneNumberByNumber(number: string): Promise<PhoneNumber | undefined> {
+    try {
+      const result = await db
+        .select({
+          id: phoneNumbers.id,
+          phoneNumber: phoneNumbers.phoneNumber,
+          friendlyName: phoneNumbers.friendlyName,
+          projectId: phoneNumbers.projectId,
+          projectName: projects.name,
+          capabilities: phoneNumbers.capabilities,
+          status: phoneNumbers.status,
+          monthlyFee: phoneNumbers.monthlyFee,
+          currency: phoneNumbers.currency,
+          region: phoneNumbers.region,
+          countryCode: phoneNumbers.countryCode,
+          voiceUrl: phoneNumbers.voiceUrl,
+          smsUrl: phoneNumbers.smsUrl,
+          lastUsed: phoneNumbers.lastUsed,
+          totalCalls: phoneNumbers.totalCalls,
+          totalMinutes: phoneNumbers.totalMinutes,
+          createdAt: phoneNumbers.createdAt,
+          updatedAt: phoneNumbers.updatedAt,
+        })
+        .from(phoneNumbers)
+        .leftJoin(projects, eq(phoneNumbers.projectId, projects.id))
+        .where(eq(phoneNumbers.phoneNumber, number))
+        .limit(1);
+      
+      if (result.length === 0) {
+        return undefined;
+      }
+
+      // Map result to match PhoneNumber type but with projectName added
+      return {
+        ...result[0],
+        projectName: result[0].projectName || undefined
+      } as any;
+    } catch (error) {
+      console.error('[DbStorage] Error getting phone number by number:', error);
+      return undefined;
+    }
+  }
+
+  async getPhoneNumbersByProject(projectId: string): Promise<PhoneNumber[]> {
+    try {
+      const result = await db
+        .select({
+          id: phoneNumbers.id,
+          phoneNumber: phoneNumbers.phoneNumber,
+          friendlyName: phoneNumbers.friendlyName,
+          projectId: phoneNumbers.projectId,
+          projectName: projects.name,
+          capabilities: phoneNumbers.capabilities,
+          status: phoneNumbers.status,
+          monthlyFee: phoneNumbers.monthlyFee,
+          currency: phoneNumbers.currency,
+          region: phoneNumbers.region,
+          countryCode: phoneNumbers.countryCode,
+          voiceUrl: phoneNumbers.voiceUrl,
+          smsUrl: phoneNumbers.smsUrl,
+          lastUsed: phoneNumbers.lastUsed,
+          totalCalls: phoneNumbers.totalCalls,
+          totalMinutes: phoneNumbers.totalMinutes,
+          createdAt: phoneNumbers.createdAt,
+          updatedAt: phoneNumbers.updatedAt,
+        })
+        .from(phoneNumbers)
+        .leftJoin(projects, eq(phoneNumbers.projectId, projects.id))
+        .where(eq(phoneNumbers.projectId, projectId))
+        .orderBy(desc(phoneNumbers.createdAt));
+      
+      // Map results to match PhoneNumber type but with projectName added
+      return result.map(row => ({
+        ...row,
+        projectName: row.projectName || undefined
+      })) as any;
+    } catch (error) {
+      console.error('[DbStorage] Error getting phone numbers by project:', error);
+      return [];
+    }
+  }
+
+  async createPhoneNumber(insertPhoneNumber: InsertPhoneNumber): Promise<PhoneNumber> {
+    try {
+      const result = await db.insert(phoneNumbers).values(insertPhoneNumber).returning();
+      console.log('[DbStorage] Created phone number:', result[0].phoneNumber);
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error creating phone number:', error);
+      throw error;
+    }
+  }
+
+  async updatePhoneNumber(id: string, updateData: Partial<InsertPhoneNumber>): Promise<PhoneNumber | undefined> {
+    try {
+      const result = await db.update(phoneNumbers)
+        .set({
+          ...updateData,
+          updatedAt: new Date()
+        })
+        .where(eq(phoneNumbers.id, id))
+        .returning();
+      
+      if (result.length > 0) {
+        console.log('[DbStorage] Updated phone number:', id);
+      }
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error updating phone number:', error);
+      return undefined;
+    }
+  }
+
+  async deletePhoneNumber(id: string): Promise<boolean> {
+    try {
+      const result = await db.delete(phoneNumbers).where(eq(phoneNumbers.id, id)).returning();
+      if (result.length > 0) {
+        console.log('[DbStorage] Deleted phone number:', id);
+      }
+      return result.length > 0;
+    } catch (error) {
+      console.error('[DbStorage] Error deleting phone number:', error);
       return false;
     }
   }

@@ -11,9 +11,11 @@ import {
   insertChatSessionSchema,
   updateChatSessionSchema,
   insertApiKeySchema,
+  insertPhoneNumberSchema,
   type Call, 
   type Agent,
-  type ChatSession 
+  type ChatSession,
+  type PhoneNumber 
 } from "@shared/schema";
 import { randomBytes, createHash } from "crypto";
 import { getTwilioClient, getTwilioFromPhoneNumber } from "./twilio-client";
@@ -1365,6 +1367,106 @@ AGENT_CREATE:
     } catch (error) {
       console.error("Failed to remove agent from project:", error);
       res.status(500).json({ error: "Failed to remove agent from project" });
+    }
+  });
+
+  // ==================== PHONE NUMBER API ENDPOINTS ====================
+  
+  // Get all phone numbers
+  app.get("/api/phone-numbers", async (req: Request, res: Response) => {
+    try {
+      const phoneNumbers = await storage.getPhoneNumbers();
+      res.json(phoneNumbers);
+    } catch (error) {
+      console.error("Failed to get phone numbers:", error);
+      res.status(500).json({ error: "Failed to get phone numbers" });
+    }
+  });
+
+  // Get specific phone number by ID
+  app.get("/api/phone-numbers/:id", async (req: Request, res: Response) => {
+    try {
+      const phoneNumber = await storage.getPhoneNumber(req.params.id);
+      if (!phoneNumber) {
+        return res.status(404).json({ error: "Phone number not found" });
+      }
+      res.json(phoneNumber);
+    } catch (error) {
+      console.error("Failed to get phone number:", error);
+      res.status(500).json({ error: "Failed to get phone number" });
+    }
+  });
+
+  // Get phone numbers by project
+  app.get("/api/projects/:projectId/phone-numbers", async (req: Request, res: Response) => {
+    try {
+      const phoneNumbers = await storage.getPhoneNumbersByProject(req.params.projectId);
+      res.json(phoneNumbers);
+    } catch (error) {
+      console.error("Failed to get project phone numbers:", error);
+      res.status(500).json({ error: "Failed to get project phone numbers" });
+    }
+  });
+
+  // Create new phone number
+  app.post("/api/phone-numbers", async (req: Request, res: Response) => {
+    try {
+      // Validate request body
+      const parsed = insertPhoneNumberSchema.parse(req.body);
+      const phoneNumber = await storage.createPhoneNumber(parsed);
+      
+      // Broadcast to connected clients
+      broadcastToClients("phoneNumber:created", phoneNumber);
+      
+      res.json(phoneNumber);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid request data", details: error.errors });
+      }
+      console.error("Failed to create phone number:", error);
+      res.status(500).json({ error: "Failed to create phone number" });
+    }
+  });
+
+  // Update phone number
+  app.patch("/api/phone-numbers/:id", async (req: Request, res: Response) => {
+    try {
+      // Validate request body (partial update)
+      const parsed = insertPhoneNumberSchema.partial().parse(req.body);
+      const phoneNumber = await storage.updatePhoneNumber(req.params.id, parsed);
+      
+      if (!phoneNumber) {
+        return res.status(404).json({ error: "Phone number not found" });
+      }
+      
+      // Broadcast to connected clients
+      broadcastToClients("phoneNumber:updated", phoneNumber);
+      
+      res.json(phoneNumber);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid request data", details: error.errors });
+      }
+      console.error("Failed to update phone number:", error);
+      res.status(500).json({ error: "Failed to update phone number" });
+    }
+  });
+
+  // Delete phone number
+  app.delete("/api/phone-numbers/:id", async (req: Request, res: Response) => {
+    try {
+      const deleted = await storage.deletePhoneNumber(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Phone number not found" });
+      }
+      
+      // Broadcast to connected clients
+      broadcastToClients("phoneNumber:deleted", { id: req.params.id });
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Failed to delete phone number:", error);
+      res.status(500).json({ error: "Failed to delete phone number" });
     }
   });
 

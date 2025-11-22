@@ -44,7 +44,8 @@ import {
   Globe,
   Calendar,
   DollarSign,
-  Activity
+  Activity,
+  FolderKanban
 } from "lucide-react";
 import type { Project } from "@shared/schema";
 
