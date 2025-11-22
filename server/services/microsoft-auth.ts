@@ -365,6 +365,251 @@ export class MicrosoftAuthService {
       folder: "inbox",
     };
   }
+
+  // Verify delegated permissions (user authentication)
+  async verifyDelegatedPermissions(): Promise<{
+    success: boolean;
+    scopeChecks: {
+      read: boolean;
+      readWrite: boolean;
+    };
+    error?: string;
+    details?: any;
+  }> {
+    try {
+      if (!this.accessToken) {
+        return {
+          success: false,
+          scopeChecks: { read: false, readWrite: false },
+          error: "No access token available. User authentication required."
+        };
+      }
+
+      const client = await this.getGraphClient();
+      const scopeChecks = { read: false, readWrite: false };
+      const details: any = {};
+
+      // Test Mail.Read permission
+      try {
+        const readTest = await client
+          .api("/me/messages")
+          .top(1)
+          .select("id,subject")
+          .get();
+        
+        scopeChecks.read = true;
+        details.readTest = { success: true, messageCount: readTest.value?.length || 0 };
+      } catch (readError: any) {
+        details.readTest = { 
+          success: false, 
+          error: readError.message,
+          code: readError.code 
+        };
+      }
+
+      // Test Mail.ReadWrite permission
+      try {
+        // Create a test draft
+        const draftMessage = {
+          subject: "[Permission Test] Azure App Verification",
+          body: {
+            contentType: "Text",
+            content: "This is a test message to verify Mail.ReadWrite permissions. This draft will be deleted immediately."
+          },
+          toRecipients: []
+        };
+
+        const draft = await client
+          .api("/me/messages")
+          .post(draftMessage);
+
+        // Delete the draft immediately
+        if (draft && draft.id) {
+          await client
+            .api(`/me/messages/${draft.id}`)
+            .delete();
+          
+          scopeChecks.readWrite = true;
+          details.readWriteTest = { success: true, method: "draft_create_delete" };
+        }
+      } catch (writeError: any) {
+        // Fallback: Try to update isRead flag on an existing message
+        try {
+          const messages = await client
+            .api("/me/messages")
+            .top(1)
+            .select("id,isRead")
+            .get();
+          
+          if (messages.value && messages.value.length > 0) {
+            const messageId = messages.value[0].id;
+            const currentReadStatus = messages.value[0].isRead;
+            
+            await client
+              .api(`/me/messages/${messageId}`)
+              .patch({ isRead: !currentReadStatus });
+            
+            // Restore original status
+            await client
+              .api(`/me/messages/${messageId}`)
+              .patch({ isRead: currentReadStatus });
+            
+            scopeChecks.readWrite = true;
+            details.readWriteTest = { success: true, method: "update_read_status" };
+          }
+        } catch (fallbackError: any) {
+          details.readWriteTest = { 
+            success: false, 
+            error: fallbackError.message,
+            code: fallbackError.code 
+          };
+        }
+      }
+
+      return {
+        success: scopeChecks.read && scopeChecks.readWrite,
+        scopeChecks,
+        details
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        scopeChecks: { read: false, readWrite: false },
+        error: error.message || "Verification failed"
+      };
+    }
+  }
+
+  // Verify application permissions (client credentials)
+  async verifyApplicationPermissions(targetMailbox: string = "info@sovoice.ai"): Promise<{
+    success: boolean;
+    scopeChecks: {
+      read: boolean;
+      readWrite: boolean;
+    };
+    error?: string;
+    details?: any;
+  }> {
+    try {
+      // Get a fresh token using client credentials
+      await this.acquireTokenByClientCredentials(targetMailbox);
+      
+      const client = await this.getGraphClient();
+      const scopeChecks = { read: false, readWrite: false };
+      const details: any = { targetMailbox };
+
+      // Test Mail.Read permission
+      try {
+        const readTest = await client
+          .api(`/users/${targetMailbox}/messages`)
+          .top(1)
+          .select("id,subject")
+          .get();
+        
+        scopeChecks.read = true;
+        details.readTest = { success: true, messageCount: readTest.value?.length || 0 };
+      } catch (readError: any) {
+        if (readError.code === "ResourceNotFound") {
+          details.readTest = { 
+            success: false, 
+            error: `Mailbox '${targetMailbox}' not found or not accessible`,
+            code: readError.code 
+          };
+        } else if (readError.code === "Authorization_RequestDenied") {
+          details.readTest = { 
+            success: false, 
+            error: "Mail.Read permission not granted or admin consent missing",
+            code: readError.code 
+          };
+        } else {
+          details.readTest = { 
+            success: false, 
+            error: readError.message,
+            code: readError.code 
+          };
+        }
+      }
+
+      // Test Mail.ReadWrite permission
+      try {
+        // Create a test message in drafts
+        const draftMessage = {
+          subject: "[App Permission Test] Azure Verification",
+          body: {
+            contentType: "Text",
+            content: "This is an automated test message to verify Mail.ReadWrite application permissions."
+          },
+          toRecipients: []
+        };
+
+        const draft = await client
+          .api(`/users/${targetMailbox}/messages`)
+          .post(draftMessage);
+
+        // Delete the draft immediately
+        if (draft && draft.id) {
+          await client
+            .api(`/users/${targetMailbox}/messages/${draft.id}`)
+            .delete();
+          
+          scopeChecks.readWrite = true;
+          details.readWriteTest = { success: true, method: "draft_create_delete" };
+        }
+      } catch (writeError: any) {
+        if (writeError.code === "Authorization_RequestDenied") {
+          details.readWriteTest = { 
+            success: false, 
+            error: "Mail.ReadWrite permission not granted or admin consent missing",
+            code: writeError.code 
+          };
+        } else {
+          // Fallback: Try to update isRead flag
+          try {
+            const messages = await client
+              .api(`/users/${targetMailbox}/messages`)
+              .top(1)
+              .select("id,isRead")
+              .get();
+            
+            if (messages.value && messages.value.length > 0) {
+              const messageId = messages.value[0].id;
+              const currentReadStatus = messages.value[0].isRead;
+              
+              await client
+                .api(`/users/${targetMailbox}/messages/${messageId}`)
+                .patch({ isRead: !currentReadStatus });
+              
+              // Restore original status
+              await client
+                .api(`/users/${targetMailbox}/messages/${messageId}`)
+                .patch({ isRead: currentReadStatus });
+              
+              scopeChecks.readWrite = true;
+              details.readWriteTest = { success: true, method: "update_read_status" };
+            }
+          } catch (fallbackError: any) {
+            details.readWriteTest = { 
+              success: false, 
+              error: fallbackError.message || writeError.message,
+              code: fallbackError.code || writeError.code 
+            };
+          }
+        }
+      }
+
+      return {
+        success: scopeChecks.read && scopeChecks.readWrite,
+        scopeChecks,
+        details
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        scopeChecks: { read: false, readWrite: false },
+        error: error.message || "Application verification failed"
+      };
+    }
+  }
 }
 
 // Export singleton instance

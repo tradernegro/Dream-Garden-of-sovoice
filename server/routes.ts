@@ -1733,6 +1733,121 @@ AGENT_CREATE:
       });
     }
   });
+
+  // Verify Microsoft Graph permissions
+  app.get("/api/microsoft/verify", async (req: Request, res: Response) => {
+    try {
+      const { microsoftAuth } = await import("./services/microsoft-auth");
+      const { targetMailbox = "info@sovoice.ai" } = req.query;
+      
+      let delegatedResult = null;
+      let applicationResult = null;
+      
+      // Check if we have environment variables configured
+      const hasCredentials = !!(
+        process.env.MICROSOFT_CLIENT_ID &&
+        process.env.MICROSOFT_CLIENT_SECRET &&
+        process.env.MICROSOFT_TENANT_ID
+      );
+
+      if (!hasCredentials) {
+        return res.status(400).json({
+          success: false,
+          error: "Microsoft Azure credentials not configured",
+          message: "Please configure MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET, and MICROSOFT_TENANT_ID"
+        });
+      }
+
+      // Try to verify delegated permissions if we have a token
+      const authType = await storage.getSetting("microsoft_auth_type");
+      const isConnected = await storage.getSetting("microsoft_connected");
+      
+      if (isConnected) {
+        try {
+          if (authType === "application") {
+            // For app auth, we already have the mailbox set
+            applicationResult = await microsoftAuth.verifyApplicationPermissions(targetMailbox as string);
+          } else {
+            // For delegated auth
+            delegatedResult = await microsoftAuth.verifyDelegatedPermissions();
+          }
+        } catch (error) {
+          console.error("Verification error:", error);
+        }
+      }
+
+      // If not connected or delegated verification failed, try application permissions
+      if (!delegatedResult || !delegatedResult.success) {
+        try {
+          applicationResult = await microsoftAuth.verifyApplicationPermissions(targetMailbox as string);
+        } catch (error) {
+          console.error("Application verification error:", error);
+        }
+      }
+
+      // Store verification results
+      const verificationResults = {
+        timestamp: new Date().toISOString(),
+        delegated: delegatedResult,
+        application: applicationResult,
+        recommendations: [] as string[],
+        hasCredentials,
+        overall: {
+          success: false,
+          authType: null as string | null,
+          mailRead: false,
+          mailReadWrite: false,
+        }
+      };
+
+      // Determine overall status
+      if (delegatedResult?.success) {
+        verificationResults.overall.success = true;
+        verificationResults.overall.authType = "delegated";
+        verificationResults.overall.mailRead = delegatedResult.scopeChecks.read;
+        verificationResults.overall.mailReadWrite = delegatedResult.scopeChecks.readWrite;
+      } else if (applicationResult?.success) {
+        verificationResults.overall.success = true;
+        verificationResults.overall.authType = "application";
+        verificationResults.overall.mailRead = applicationResult.scopeChecks.read;
+        verificationResults.overall.mailReadWrite = applicationResult.scopeChecks.readWrite;
+      }
+
+      // Add recommendations based on results
+      if (!verificationResults.overall.success) {
+        verificationResults.recommendations.push(
+          "Ensure your Azure App has Mail.Read and Mail.ReadWrite permissions configured",
+          "Grant admin consent for all requested permissions in Azure Portal",
+          "Verify the target mailbox exists and is accessible"
+        );
+      }
+
+      if (!verificationResults.overall.mailRead) {
+        verificationResults.recommendations.push(
+          "Mail.Read permission is missing or not consented"
+        );
+      }
+
+      if (!verificationResults.overall.mailReadWrite) {
+        verificationResults.recommendations.push(
+          "Mail.ReadWrite permission is missing or not consented"
+        );
+      }
+
+      // Store last verification timestamp
+      await storage.setSetting("microsoft_last_verification", new Date().toISOString());
+      await storage.setSetting("microsoft_verification_result", JSON.stringify(verificationResults));
+
+      res.json(verificationResults);
+    } catch (error) {
+      console.error("Verification endpoint error:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to verify permissions",
+        message: (error as Error).message
+      });
+    }
+  });
   
   // Sync emails from Outlook
   app.post("/api/microsoft/sync", async (req: Request, res: Response) => {
