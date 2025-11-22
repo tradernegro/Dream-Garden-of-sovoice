@@ -37,6 +37,42 @@ export class MicrosoftAuthService {
 
   constructor() {
     this.msalClient = new ConfidentialClientApplication(msalConfig);
+    // Load cached token from storage will be done on demand
+  }
+
+  // Load token from storage
+  async loadFromStorage(): Promise<void> {
+    try {
+      const { storage } = await import("../storage");
+      const tokenData = await storage.getSetting("microsoft_token_data");
+      if (tokenData && tokenData.value) {
+        const data = JSON.parse(tokenData.value as string);
+        this.accessToken = data.accessToken;
+        this.tokenExpiry = data.tokenExpiry ? new Date(data.tokenExpiry) : null;
+        this.authType = data.authType;
+        this.userEmail = data.userEmail;
+        this.targetMailbox = data.targetMailbox;
+      }
+    } catch (error) {
+      console.error("Failed to load token from storage:", error);
+    }
+  }
+
+  // Save token to storage
+  async saveToStorage(): Promise<void> {
+    try {
+      const { storage } = await import("../storage");
+      const tokenData = {
+        accessToken: this.accessToken,
+        tokenExpiry: this.tokenExpiry?.toISOString(),
+        authType: this.authType,
+        userEmail: this.userEmail,
+        targetMailbox: this.targetMailbox
+      };
+      await storage.setSetting("microsoft_token_data", JSON.stringify(tokenData));
+    } catch (error) {
+      console.error("Failed to save token to storage:", error);
+    }
   }
 
   // Generate authorization URL for user consent
@@ -76,6 +112,9 @@ export class MicrosoftAuthService {
         // Extract user email from the token response
         this.userEmail = response.account?.username || response.account?.name || null;
         this.targetMailbox = null; // Clear targetMailbox for delegated auth
+        
+        // Save token to persistent storage
+        await this.saveToStorage();
         
         return {
           accessToken: response.accessToken,
@@ -132,6 +171,11 @@ export class MicrosoftAuthService {
 
   // Get or refresh access token
   async getAccessToken(): Promise<string> {
+    // First, try to load from storage if we don't have a token in memory
+    if (!this.accessToken) {
+      await this.loadFromStorage();
+    }
+    
     // Check if token exists and is still valid
     if (this.accessToken && this.tokenExpiry && this.tokenExpiry > new Date()) {
       return this.accessToken;
@@ -149,6 +193,10 @@ export class MicrosoftAuthService {
         if (response && response.accessToken) {
           this.accessToken = response.accessToken;
           this.tokenExpiry = response.expiresOn || null;
+          
+          // Save refreshed token to storage
+          await this.saveToStorage();
+          
           return response.accessToken;
         }
       }
