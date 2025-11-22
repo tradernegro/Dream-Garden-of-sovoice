@@ -120,6 +120,149 @@ export async function registerRoutes(app: Express): Promise<Server> {
     credentials: false, // API uses Bearer tokens, not cookies
   }));
 
+  // ==================== DASHBOARD ROUTES ====================
+  
+  // Get dashboard metrics
+  app.get("/api/dashboard/metrics", async (req: Request, res: Response) => {
+    try {
+      const { timeRange = "7d" } = req.query;
+      
+      // Get all calls
+      const calls = await storage.getCalls();
+      const agents = await storage.getAgents();
+      const projects = await storage.getProjects();
+      
+      // Filter calls by time range
+      const now = new Date();
+      const filterDate = new Date();
+      
+      switch(timeRange) {
+        case "24h":
+          filterDate.setHours(filterDate.getHours() - 24);
+          break;
+        case "7d":
+          filterDate.setDate(filterDate.getDate() - 7);
+          break;
+        case "30d":
+          filterDate.setDate(filterDate.getDate() - 30);
+          break;
+        case "90d":
+          filterDate.setDate(filterDate.getDate() - 90);
+          break;
+      }
+      
+      const filteredCalls = calls.filter(call => 
+        new Date(call.createdAt) >= filterDate
+      );
+      
+      // Calculate metrics
+      const todayCalls = calls.filter(call => {
+        const callDate = new Date(call.createdAt);
+        const today = new Date();
+        return callDate.toDateString() === today.toDateString();
+      });
+      
+      const metrics = {
+        totalCalls: filteredCalls.length,
+        todayCalls: todayCalls.length,
+        activeCalls: filteredCalls.filter(c => c.status === "in-progress").length,
+        completedCalls: filteredCalls.filter(c => c.status === "completed").length,
+        failedCalls: filteredCalls.filter(c => c.status === "failed").length,
+        successRate: filteredCalls.length > 0 
+          ? Math.round((filteredCalls.filter(c => c.status === "completed").length / filteredCalls.length) * 100) 
+          : 0,
+        avgDuration: filteredCalls.length > 0
+          ? Math.round(filteredCalls.reduce((acc, c) => acc + (c.duration || 0), 0) / filteredCalls.length)
+          : 0,
+        
+        // Call volume by day
+        callVolumeByDay: (() => {
+          const days = [];
+          for (let i = 6; i >= 0; i--) {
+            const date = new Date();
+            date.setDate(date.getDate() - i);
+            const dayStart = new Date(date.setHours(0, 0, 0, 0));
+            const dayEnd = new Date(date.setHours(23, 59, 59, 999));
+            
+            const dayCalls = filteredCalls.filter(call => {
+              const callDate = new Date(call.createdAt);
+              return callDate >= dayStart && callDate <= dayEnd;
+            });
+            
+            days.push({
+              date: dayStart.toLocaleDateString('en', { weekday: 'short' }),
+              inbound: dayCalls.filter(c => c.direction === "inbound").length,
+              outbound: dayCalls.filter(c => c.direction === "outbound").length,
+            });
+          }
+          return days;
+        })(),
+        
+        // Hourly distribution
+        hourlyDistribution: (() => {
+          const hours = Array.from({ length: 24 }, (_, i) => ({
+            hour: `${i}:00`,
+            calls: 0
+          }));
+          
+          filteredCalls.forEach(call => {
+            const hour = new Date(call.createdAt).getHours();
+            hours[hour].calls++;
+          });
+          
+          return hours;
+        })(),
+        
+        // Status distribution
+        statusDistribution: [
+          { name: "Completed", value: filteredCalls.filter(c => c.status === "completed").length, color: "#10b981" },
+          { name: "Failed", value: filteredCalls.filter(c => c.status === "failed").length, color: "#ef4444" },
+          { name: "No Answer", value: filteredCalls.filter(c => c.status === "no-answer").length, color: "#f59e0b" },
+          { name: "Busy", value: filteredCalls.filter(c => c.status === "busy").length, color: "#6b7280" },
+        ],
+        
+        // Agent performance
+        agentPerformance: agents.map(agent => {
+          const agentCalls = filteredCalls.filter(c => c.agentId === agent.id);
+          return {
+            id: agent.id,
+            name: agent.name,
+            calls: agentCalls.length,
+            successRate: agentCalls.length > 0 
+              ? Math.round((agentCalls.filter(c => c.status === "completed").length / agentCalls.length) * 100)
+              : 0,
+          };
+        }).sort((a, b) => b.calls - a.calls).slice(0, 5),
+        
+        // Recent calls
+        recentCalls: calls.slice(0, 10).map(call => ({
+          id: call.id,
+          phoneNumber: call.phoneNumber,
+          direction: call.direction,
+          status: call.status,
+          createdAt: call.createdAt,
+        })),
+        
+        // System health
+        systemHealth: {
+          twilio: { status: "connected", message: "Active" },
+          openai: { status: "connected", message: "Active" },
+          googleCalendar: projects.some(p => p.googleAccountId) 
+            ? { status: "connected", message: "Connected" }
+            : { status: "not_connected", message: "Not Connected" },
+          gmail: projects.some(p => p.googleAccountId) 
+            ? { status: "connected", message: "Connected" }
+            : { status: "not_connected", message: "Not Connected" },
+        },
+      };
+      
+      res.json(metrics);
+    } catch (error) {
+      console.error("Dashboard metrics error:", error);
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
   // ==================== CALL ROUTES ====================
   
   // Get all calls
