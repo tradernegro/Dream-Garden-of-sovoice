@@ -69,7 +69,8 @@ export class MicrosoftAuthService {
       if (response && response.accessToken) {
         this.accessToken = response.accessToken;
         this.tokenExpiry = response.expiresOn || null;
-        this.refreshToken = response.refreshToken || null;
+        // Note: MSAL handles refresh tokens internally
+        this.refreshToken = null;
         this.authType = "delegated";
         
         // Extract user email from the token response
