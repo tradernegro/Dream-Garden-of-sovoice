@@ -54,9 +54,70 @@ import {
   Link2,
   Shield,
   Loader2,
-  Check
+  Check,
+  Clock,
+  MessageSquare,
+  Mic,
+  MicOff,
+  Video,
+  VideoOff,
+  PhoneCall,
+  PhoneOff,
+  Users,
+  User,
+  Languages,
+  Voicemail,
+  MapPin,
+  Building2,
+  Timer,
+  MoreVertical,
+  Edit,
+  Volume2,
+  ChevronDown,
+  ChevronRight,
+  Bot,
+  Zap,
+  Filter,
+  Search
 } from "lucide-react";
-import type { Project } from "@shared/schema";
+import type { Project, Agent } from "@shared/schema";
+import { 
+  getCountryFromPhone, 
+  formatPhoneNumber, 
+  detectNumberType,
+  getCallUrl,
+  getWhatsAppUrl,
+  canSendSMS,
+  getTimezoneForNumber 
+} from "@/lib/phone-utils";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 
 interface PhoneNumber {
   id: string;
@@ -64,6 +125,8 @@ interface PhoneNumber {
   friendlyName: string;
   projectId: string | null;
   projectName?: string;
+  agentId: string | null;
+  agentName?: string;
   capabilities: {
     voice: boolean;
     sms: boolean;
@@ -71,12 +134,31 @@ interface PhoneNumber {
     fax: boolean;
   };
   status: "active" | "inactive" | "suspended";
-  monthlyFee: number;
+  monthlyFee: number | string;
   currency: string;
   region: string;
   countryCode: string;
   voiceUrl?: string;
   smsUrl?: string;
+  metadata?: {
+    city?: string;
+    state?: string;
+    country?: string;
+    timezone?: string;
+    carrier?: string;
+    numberType?: string;
+    supportedLanguages?: string[];
+    businessHours?: {
+      start: string;
+      end: string;
+      timezone: string;
+      days: string[];
+    };
+    callRecording?: boolean;
+    voicemail?: boolean;
+    callTransfer?: boolean;
+    ivr?: boolean;
+  };
   createdAt: string;
   updatedAt: string;
   lastUsed?: string;
@@ -89,18 +171,26 @@ export default function PhoneNumbers() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isConfigDialogOpen, setIsConfigDialogOpen] = useState(false);
   const [selectedNumber, setSelectedNumber] = useState<PhoneNumber | null>(null);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [showAuthToken, setShowAuthToken] = useState(false);
   const [showAccountSid, setShowAccountSid] = useState(false);
   const [copiedWebhook, setCopiedWebhook] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterStatus, setFilterStatus] = useState<"all" | "active" | "inactive" | "suspended">("all");
+  const [filterProject, setFilterProject] = useState<string>("all");
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  
   const [configForm, setConfigForm] = useState({
     accountSid: "",
     authToken: "",
     phoneNumber: ""
   });
+  
   const [newNumber, setNewNumber] = useState({
     phoneNumber: "",
     friendlyName: "",
-    projectId: "none", // Default to "none" which converts to null
+    projectId: "none",
+    agentId: "none",
     monthlyFee: "",
     voiceEnabled: true,
     smsEnabled: false,
@@ -109,7 +199,21 @@ export default function PhoneNumbers() {
     metadata: {
       city: "",
       state: "",
-      country: ""
+      country: "",
+      timezone: "",
+      carrier: "",
+      numberType: "local",
+      supportedLanguages: [],
+      businessHours: {
+        start: "09:00",
+        end: "17:00",
+        timezone: "UTC",
+        days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+      },
+      callRecording: false,
+      voicemail: false,
+      callTransfer: false,
+      ivr: false
     }
   });
 
@@ -126,6 +230,11 @@ export default function PhoneNumbers() {
   // Fetch projects for assignment
   const { data: projects = [] } = useQuery<Project[]>({
     queryKey: ["/api/projects"],
+  });
+
+  // Fetch agents for assignment
+  const { data: agents = [] } = useQuery<Agent[]>({
+    queryKey: ["/api/agents"],
   });
 
   // Fetch Twilio configuration status
@@ -201,7 +310,8 @@ export default function PhoneNumbers() {
         phoneNumber: data.phoneNumber,
         friendlyName: data.friendlyName,
         projectId: data.projectId === "none" ? null : data.projectId,
-        monthlyFee: data.monthlyFee || "0.00", // Keep as string for decimal type
+        agentId: data.agentId === "none" ? null : data.agentId,
+        monthlyFee: data.monthlyFee || "0.00",
         voiceEnabled: data.voiceEnabled,
         smsEnabled: data.smsEnabled,
         mmsEnabled: data.mmsEnabled,
@@ -217,7 +327,8 @@ export default function PhoneNumbers() {
       setNewNumber({ 
         phoneNumber: "", 
         friendlyName: "", 
-        projectId: "none", // Reset to "none" which converts to null
+        projectId: "none",
+        agentId: "none",
         monthlyFee: "",
         voiceEnabled: true,
         smsEnabled: false,
@@ -226,7 +337,21 @@ export default function PhoneNumbers() {
         metadata: {
           city: "",
           state: "",
-          country: ""
+          country: "",
+          timezone: "",
+          carrier: "",
+          numberType: "local",
+          supportedLanguages: [],
+          businessHours: {
+            start: "09:00",
+            end: "17:00",
+            timezone: "UTC",
+            days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+          },
+          callRecording: false,
+          voicemail: false,
+          callTransfer: false,
+          ivr: false
         }
       });
       toast({
@@ -237,6 +362,30 @@ export default function PhoneNumbers() {
     onError: (error) => {
       toast({
         title: "Error adding phone number",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  });
+
+  // Update phone number mutation
+  const updateNumberMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<PhoneNumber> }) => {
+      const response = await apiRequest("PATCH", `/api/phone-numbers/${id}`, data);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/phone-numbers"] });
+      setIsEditDialogOpen(false);
+      setSelectedNumber(null);
+      toast({
+        title: "Phone number updated",
+        description: "The phone number has been successfully updated.",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error updating phone number",
         description: error.message,
         variant: "destructive",
       });
@@ -264,23 +413,22 @@ export default function PhoneNumbers() {
     }
   });
 
-  // Update phone number assignment
-  const updateAssignmentMutation = useMutation({
-    mutationFn: async ({ id, projectId }: { id: string; projectId: string | null }) => {
-      const requestProjectId = projectId === "none" ? null : projectId;
-      const response = await apiRequest("PATCH", `/api/phone-numbers/${id}`, { projectId: requestProjectId });
+  // Quick agent assignment mutation
+  const assignAgentMutation = useMutation({
+    mutationFn: async ({ id, agentId }: { id: string; agentId: string | null }) => {
+      const response = await apiRequest("PATCH", `/api/phone-numbers/${id}`, { agentId });
       return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/phone-numbers"] });
       toast({
-        title: "Assignment updated",
-        description: "Phone number assignment has been updated.",
+        title: "Agent assigned",
+        description: "The agent has been assigned to this phone number.",
       });
     },
     onError: (error) => {
       toast({
-        title: "Error updating assignment",
+        title: "Error assigning agent",
         description: error.message,
         variant: "destructive",
       });
@@ -298,14 +446,6 @@ export default function PhoneNumbers() {
       default:
         return null;
     }
-  };
-
-  const formatPhoneNumber = (number: string) => {
-    // Format US numbers
-    if (number.startsWith("+1") && number.length === 12) {
-      return `${number.slice(0, 2)} (${number.slice(2, 5)}) ${number.slice(5, 8)}-${number.slice(8)}`;
-    }
-    return number;
   };
 
   const copyToClipboard = async (text: string, label: string) => {
@@ -326,11 +466,36 @@ export default function PhoneNumbers() {
     }
   };
 
+  const toggleRowExpand = (id: string) => {
+    const newExpanded = new Set(expandedRows);
+    if (newExpanded.has(id)) {
+      newExpanded.delete(id);
+    } else {
+      newExpanded.add(id);
+    }
+    setExpandedRows(newExpanded);
+  };
+
+  // Filter phone numbers
+  const filteredNumbers = phoneNumbers.filter(number => {
+    const matchesSearch = searchQuery === "" || 
+      number.phoneNumber.includes(searchQuery) ||
+      number.friendlyName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      number.agentName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      number.projectName?.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    const matchesStatus = filterStatus === "all" || number.status === filterStatus;
+    const matchesProject = filterProject === "all" || number.projectId === filterProject;
+    
+    return matchesSearch && matchesStatus && matchesProject;
+  });
+
   // Calculate stats
   const stats = {
     total: phoneNumbers.length,
     active: phoneNumbers.filter(n => n.status === "active").length,
-    assigned: phoneNumbers.filter(n => n.projectId).length,
+    assigned: phoneNumbers.filter(n => n.agentId).length,
+    withProjects: phoneNumbers.filter(n => n.projectId).length,
     monthlyCost: phoneNumbers.reduce((sum, n) => {
       const fee = typeof n.monthlyFee === 'string' ? parseFloat(n.monthlyFee) : n.monthlyFee;
       return sum + (fee || 0);
@@ -346,732 +511,1135 @@ export default function PhoneNumbers() {
             Phone Numbers
           </h1>
           <p className="text-muted-foreground">
-            Manage your Twilio phone numbers and project assignments
+            Manage your voice platform phone numbers and agent assignments
           </p>
         </div>
-        <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-          <DialogTrigger asChild>
-            <Button data-testid="button-add-phone-number">
-              <Plus className="h-4 w-4 mr-2" />
-              Add Phone Number
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add Phone Number</DialogTitle>
-              <DialogDescription>
-                Add a new Twilio phone number to your account
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="phone">Phone Number</Label>
-                <Input
-                  id="phone"
-                  placeholder="+1234567890"
-                  value={newNumber.phoneNumber}
-                  onChange={(e) => setNewNumber({ ...newNumber, phoneNumber: e.target.value })}
-                  data-testid="input-phone-number"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="name">Friendly Name</Label>
-                <Input
-                  id="name"
-                  placeholder="Main Support Line"
-                  value={newNumber.friendlyName}
-                  onChange={(e) => setNewNumber({ ...newNumber, friendlyName: e.target.value })}
-                  data-testid="input-friendly-name"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="project">Assign to Project (Optional)</Label>
-                <Select
-                  value={newNumber.projectId}
-                  onValueChange={(value) => setNewNumber({ ...newNumber, projectId: value })}
-                >
-                  <SelectTrigger data-testid="select-project">
-                    <SelectValue placeholder="Select a project" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">None</SelectItem>
-                    {projects.map((project) => (
-                      <SelectItem key={project.id} value={project.id}>
-                        {project.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Capabilities</Label>
-                <div className="flex flex-wrap gap-4">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="voice"
-                      checked={newNumber.voiceEnabled}
-                      onChange={(e) => setNewNumber({ ...newNumber, voiceEnabled: e.target.checked })}
-                      className="rounded border-gray-300"
-                      data-testid="checkbox-voice"
-                    />
-                    <Label htmlFor="voice" className="font-normal">Voice</Label>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="sms"
-                      checked={newNumber.smsEnabled}
-                      onChange={(e) => setNewNumber({ ...newNumber, smsEnabled: e.target.checked })}
-                      className="rounded border-gray-300"
-                      data-testid="checkbox-sms"
-                    />
-                    <Label htmlFor="sms" className="font-normal">SMS</Label>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="mms"
-                      checked={newNumber.mmsEnabled}
-                      onChange={(e) => setNewNumber({ ...newNumber, mmsEnabled: e.target.checked })}
-                      className="rounded border-gray-300"
-                      data-testid="checkbox-mms"
-                    />
-                    <Label htmlFor="mms" className="font-normal">MMS</Label>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="fax"
-                      checked={newNumber.faxEnabled}
-                      onChange={(e) => setNewNumber({ ...newNumber, faxEnabled: e.target.checked })}
-                      className="rounded border-gray-300"
-                      data-testid="checkbox-fax"
-                    />
-                    <Label htmlFor="fax" className="font-normal">Fax</Label>
-                  </div>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="fee">Monthly Fee ($)</Label>
-                <Input
-                  id="fee"
-                  type="number"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={newNumber.monthlyFee}
-                  onChange={(e) => setNewNumber({ ...newNumber, monthlyFee: e.target.value })}
-                  data-testid="input-monthly-fee"
-                />
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                <div className="space-y-2">
-                  <Label htmlFor="city">City</Label>
-                  <Input
-                    id="city"
-                    placeholder="San Francisco"
-                    value={newNumber.metadata.city}
-                    onChange={(e) => setNewNumber({ ...newNumber, metadata: { ...newNumber.metadata, city: e.target.value } })}
-                    data-testid="input-city"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="state">State</Label>
-                  <Input
-                    id="state"
-                    placeholder="CA"
-                    value={newNumber.metadata.state}
-                    onChange={(e) => setNewNumber({ ...newNumber, metadata: { ...newNumber.metadata, state: e.target.value } })}
-                    data-testid="input-state"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="country">Country</Label>
-                  <Input
-                    id="country"
-                    placeholder="United States"
-                    value={newNumber.metadata.country}
-                    onChange={(e) => setNewNumber({ ...newNumber, metadata: { ...newNumber.metadata, country: e.target.value } })}
-                    data-testid="input-country"
-                  />
-                </div>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
-                Cancel
+        <div className="flex gap-2">
+          <Dialog open={isConfigDialogOpen} onOpenChange={setIsConfigDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" data-testid="button-configure-twilio">
+                <Settings2 className="h-4 w-4 mr-2" />
+                Configure Twilio
               </Button>
-              <Button 
-                onClick={() => addNumberMutation.mutate(newNumber)}
-                disabled={!newNumber.phoneNumber || addNumberMutation.isPending}
-                data-testid="button-confirm-add"
-              >
-                Add Number
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </div>
-
-      {/* Twilio Configuration Card */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-          <div className="flex items-center gap-3">
-            <Shield className="h-5 w-5 text-orange-500" />
-            <div>
-              <CardTitle>Twilio Configuration</CardTitle>
-              <CardDescription>Manage your Twilio account settings and webhooks</CardDescription>
-            </div>
-          </div>
-          <Badge 
-            className={twilioConfig?.configured ? "bg-orange-500/10 text-orange-500" : "bg-muted text-muted-foreground"}
-            data-testid="badge-twilio-status"
-          >
-            {isLoadingConfig ? (
-              <>
-                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                Checking...
-              </>
-            ) : twilioConfig?.configured ? (
-              <>
-                <CheckCircle className="h-3 w-3 mr-1" />
-                Configured
-              </>
-            ) : (
-              <>
-                <XCircle className="h-3 w-3 mr-1" />
-                Not Configured
-              </>
-            )}
-          </Badge>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Configuration Status */}
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Account SID</Label>
-              <div className="flex items-center gap-2">
-                {twilioConfig?.hasAccountSid ? (
-                  <Badge variant="secondary" className="font-mono text-xs">
-                    <Shield className="h-3 w-3 mr-1" />
-                    Configured
-                  </Badge>
-                ) : (
-                  <Badge variant="outline" className="text-xs">Not Set</Badge>
-                )}
-              </div>
-            </div>
-            
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Auth Token</Label>
-              <div className="flex items-center gap-2">
-                {twilioConfig?.hasAuthToken ? (
-                  <Badge variant="secondary" className="font-mono text-xs">
-                    <Shield className="h-3 w-3 mr-1" />
-                    Configured
-                  </Badge>
-                ) : (
-                  <Badge variant="outline" className="text-xs">Not Set</Badge>
-                )}
-              </div>
-            </div>
-            
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Phone Number</Label>
-              <div className="flex items-center gap-2">
-                {twilioConfig?.fullPhoneNumber ? (
-                  <Badge variant="secondary" className="font-mono text-xs">
-                    <Phone className="h-3 w-3 mr-1" />
-                    {twilioConfig.phoneNumber}
-                  </Badge>
-                ) : (
-                  <Badge variant="outline" className="text-xs">Not Set</Badge>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Webhook URLs */}
-          {twilioConfig?.webhookUrls && (
-            <div className="border rounded-lg p-4 space-y-3">
-              <div className="flex items-center gap-2 mb-2">
-                <Link2 className="h-4 w-4 text-muted-foreground" />
-                <Label className="text-sm font-medium">Webhook URLs</Label>
-              </div>
-              
-              <div className="space-y-2 text-xs">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-muted-foreground">Voice URL:</span>
-                  <div className="flex items-center gap-1">
-                    <code className="bg-muted px-2 py-1 rounded" data-testid="text-voice-url">
-                      {twilioConfig.webhookUrls.voice}
-                    </code>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>Twilio Configuration</DialogTitle>
+                <DialogDescription>
+                  Configure your Twilio account settings for voice services
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label htmlFor="accountSid">Account SID</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="accountSid"
+                      type={showAccountSid ? "text" : "password"}
+                      placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                      value={configForm.accountSid}
+                      onChange={(e) => setConfigForm({ ...configForm, accountSid: e.target.value })}
+                      data-testid="input-account-sid"
+                    />
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-7 w-7"
-                      onClick={() => copyToClipboard(twilioConfig.webhookUrls.voice, "Voice URL")}
-                      data-testid="button-copy-voice-url"
+                      onClick={() => setShowAccountSid(!showAccountSid)}
                     >
-                      {copiedWebhook === "Voice URL" ? (
-                        <Check className="h-3 w-3 text-green-500" />
-                      ) : (
-                        <Copy className="h-3 w-3" />
-                      )}
+                      {showAccountSid ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </Button>
                   </div>
                 </div>
-                
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-muted-foreground">Status URL:</span>
-                  <div className="flex items-center gap-1">
-                    <code className="bg-muted px-2 py-1 rounded" data-testid="text-status-url">
-                      {twilioConfig.webhookUrls.status}
-                    </code>
+                <div className="space-y-2">
+                  <Label htmlFor="authToken">Auth Token</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="authToken"
+                      type={showAuthToken ? "text" : "password"}
+                      placeholder="Your Twilio Auth Token"
+                      value={configForm.authToken}
+                      onChange={(e) => setConfigForm({ ...configForm, authToken: e.target.value })}
+                      data-testid="input-auth-token"
+                    />
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-7 w-7"
-                      onClick={() => copyToClipboard(twilioConfig.webhookUrls.status, "Status URL")}
-                      data-testid="button-copy-status-url"
+                      onClick={() => setShowAuthToken(!showAuthToken)}
                     >
-                      {copiedWebhook === "Status URL" ? (
-                        <Check className="h-3 w-3 text-green-500" />
-                      ) : (
-                        <Copy className="h-3 w-3" />
-                      )}
+                      {showAuthToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </Button>
                   </div>
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="phoneNumber">Phone Number</Label>
+                  <Input
+                    id="phoneNumber"
+                    placeholder="+1234567890"
+                    value={configForm.phoneNumber}
+                    onChange={(e) => setConfigForm({ ...configForm, phoneNumber: e.target.value })}
+                    data-testid="input-config-phone-number"
+                  />
+                </div>
                 
-                {twilioConfig.webhookUrls.stream && (
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-muted-foreground">Stream URL:</span>
-                    <div className="flex items-center gap-1">
-                      <code className="bg-muted px-2 py-1 rounded" data-testid="text-stream-url">
-                        {twilioConfig.webhookUrls.stream}
-                      </code>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        onClick={() => copyToClipboard(twilioConfig.webhookUrls.stream, "Stream URL")}
-                        data-testid="button-copy-stream-url"
-                      >
-                        {copiedWebhook === "Stream URL" ? (
-                          <Check className="h-3 w-3 text-green-500" />
-                        ) : (
-                          <Copy className="h-3 w-3" />
-                        )}
-                      </Button>
+                {twilioConfig?.webhookUrls && (
+                  <div className="border rounded-lg p-4 space-y-3">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Link2 className="h-4 w-4 text-muted-foreground" />
+                      <Label className="text-sm font-medium">Webhook URLs</Label>
+                    </div>
+                    
+                    <div className="space-y-2 text-xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-muted-foreground">Voice URL:</span>
+                        <div className="flex items-center gap-1">
+                          <code className="bg-muted px-2 py-1 rounded" data-testid="text-voice-url">
+                            {twilioConfig.webhookUrls.voice}
+                          </code>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => copyToClipboard(twilioConfig.webhookUrls.voice, "Voice URL")}
+                            data-testid="button-copy-voice-url"
+                          >
+                            {copiedWebhook === "Voice URL" ? (
+                              <Check className="h-3 w-3 text-green-500" />
+                            ) : (
+                              <Copy className="h-3 w-3" />
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-muted-foreground">Status URL:</span>
+                        <div className="flex items-center gap-1">
+                          <code className="bg-muted px-2 py-1 rounded" data-testid="text-status-url">
+                            {twilioConfig.webhookUrls.status}
+                          </code>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => copyToClipboard(twilioConfig.webhookUrls.status, "Status URL")}
+                            data-testid="button-copy-status-url"
+                          >
+                            {copiedWebhook === "Status URL" ? (
+                              <Check className="h-3 w-3 text-green-500" />
+                            ) : (
+                              <Copy className="h-3 w-3" />
+                            )}
+                          </Button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}
               </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsConfigDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => testConnectionMutation.mutate()}
+                  disabled={testConnectionMutation.isPending}
+                  variant="outline"
+                  data-testid="button-test-connection"
+                >
+                  {testConnectionMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  Test Connection
+                </Button>
+                <Button
+                  onClick={() => updateConfigMutation.mutate(configForm)}
+                  disabled={updateConfigMutation.isPending || (!configForm.accountSid && !configForm.authToken && !configForm.phoneNumber)}
+                  data-testid="button-save-config"
+                >
+                  {updateConfigMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  Save Configuration
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+          
+          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+            <DialogTrigger asChild>
+              <Button data-testid="button-add-phone-number">
+                <Plus className="h-4 w-4 mr-2" />
+                Add Phone Number
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Add Phone Number</DialogTitle>
+                <DialogDescription>
+                  Add a new phone number to your voice platform
+                </DialogDescription>
+              </DialogHeader>
+              <Tabs defaultValue="basic" className="w-full">
+                <TabsList className="grid w-full grid-cols-3">
+                  <TabsTrigger value="basic">Basic Info</TabsTrigger>
+                  <TabsTrigger value="capabilities">Capabilities</TabsTrigger>
+                  <TabsTrigger value="advanced">Advanced</TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="basic" className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="phone">Phone Number</Label>
+                    <Input
+                      id="phone"
+                      placeholder="+1234567890"
+                      value={newNumber.phoneNumber}
+                      onChange={(e) => setNewNumber({ ...newNumber, phoneNumber: e.target.value })}
+                      data-testid="input-phone-number"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="name">Friendly Name</Label>
+                    <Input
+                      id="name"
+                      placeholder="Main Support Line"
+                      value={newNumber.friendlyName}
+                      onChange={(e) => setNewNumber({ ...newNumber, friendlyName: e.target.value })}
+                      data-testid="input-friendly-name"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="project">Project</Label>
+                      <Select
+                        value={newNumber.projectId}
+                        onValueChange={(value) => setNewNumber({ ...newNumber, projectId: value })}
+                      >
+                        <SelectTrigger data-testid="select-project">
+                          <SelectValue placeholder="Select a project" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">None</SelectItem>
+                          {projects.map((project) => (
+                            <SelectItem key={project.id} value={project.id}>
+                              {project.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="agent">Agent for Inbound</Label>
+                      <Select
+                        value={newNumber.agentId}
+                        onValueChange={(value) => setNewNumber({ ...newNumber, agentId: value })}
+                      >
+                        <SelectTrigger data-testid="select-agent">
+                          <SelectValue placeholder="Select an agent" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">None</SelectItem>
+                          {agents.map((agent) => (
+                            <SelectItem key={agent.id} value={agent.id}>
+                              {agent.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="fee">Monthly Fee ($)</Label>
+                    <Input
+                      id="fee"
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={newNumber.monthlyFee}
+                      onChange={(e) => setNewNumber({ ...newNumber, monthlyFee: e.target.value })}
+                      data-testid="input-monthly-fee"
+                    />
+                  </div>
+                </TabsContent>
+                
+                <TabsContent value="capabilities" className="space-y-4">
+                  <div className="space-y-4">
+                    <Label>Communication Capabilities</Label>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="flex items-center justify-between rounded-lg border p-3">
+                        <div className="flex items-center gap-2">
+                          <PhoneCall className="h-4 w-4" />
+                          <Label htmlFor="voice" className="font-normal">Voice Calls</Label>
+                        </div>
+                        <Switch
+                          id="voice"
+                          checked={newNumber.voiceEnabled}
+                          onCheckedChange={(checked) => setNewNumber({ ...newNumber, voiceEnabled: checked })}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between rounded-lg border p-3">
+                        <div className="flex items-center gap-2">
+                          <MessageSquare className="h-4 w-4" />
+                          <Label htmlFor="sms" className="font-normal">SMS</Label>
+                        </div>
+                        <Switch
+                          id="sms"
+                          checked={newNumber.smsEnabled}
+                          onCheckedChange={(checked) => setNewNumber({ ...newNumber, smsEnabled: checked })}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between rounded-lg border p-3">
+                        <div className="flex items-center gap-2">
+                          <MessageSquare className="h-4 w-4" />
+                          <Label htmlFor="mms" className="font-normal">MMS</Label>
+                        </div>
+                        <Switch
+                          id="mms"
+                          checked={newNumber.mmsEnabled}
+                          onCheckedChange={(checked) => setNewNumber({ ...newNumber, mmsEnabled: checked })}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between rounded-lg border p-3">
+                        <div className="flex items-center gap-2">
+                          <Globe className="h-4 w-4" />
+                          <Label htmlFor="fax" className="font-normal">Fax</Label>
+                        </div>
+                        <Switch
+                          id="fax"
+                          checked={newNumber.faxEnabled}
+                          onCheckedChange={(checked) => setNewNumber({ ...newNumber, faxEnabled: checked })}
+                        />
+                      </div>
+                    </div>
+                    
+                    <Label>Advanced Features</Label>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="flex items-center justify-between rounded-lg border p-3">
+                        <div className="flex items-center gap-2">
+                          <Mic className="h-4 w-4" />
+                          <Label htmlFor="recording" className="font-normal">Call Recording</Label>
+                        </div>
+                        <Switch
+                          id="recording"
+                          checked={newNumber.metadata.callRecording}
+                          onCheckedChange={(checked) => setNewNumber({ 
+                            ...newNumber, 
+                            metadata: { ...newNumber.metadata, callRecording: checked }
+                          })}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between rounded-lg border p-3">
+                        <div className="flex items-center gap-2">
+                          <Voicemail className="h-4 w-4" />
+                          <Label htmlFor="voicemail" className="font-normal">Voicemail</Label>
+                        </div>
+                        <Switch
+                          id="voicemail"
+                          checked={newNumber.metadata.voicemail}
+                          onCheckedChange={(checked) => setNewNumber({ 
+                            ...newNumber, 
+                            metadata: { ...newNumber.metadata, voicemail: checked }
+                          })}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between rounded-lg border p-3">
+                        <div className="flex items-center gap-2">
+                          <PhoneOutgoing className="h-4 w-4" />
+                          <Label htmlFor="transfer" className="font-normal">Call Transfer</Label>
+                        </div>
+                        <Switch
+                          id="transfer"
+                          checked={newNumber.metadata.callTransfer}
+                          onCheckedChange={(checked) => setNewNumber({ 
+                            ...newNumber, 
+                            metadata: { ...newNumber.metadata, callTransfer: checked }
+                          })}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between rounded-lg border p-3">
+                        <div className="flex items-center gap-2">
+                          <Bot className="h-4 w-4" />
+                          <Label htmlFor="ivr" className="font-normal">IVR System</Label>
+                        </div>
+                        <Switch
+                          id="ivr"
+                          checked={newNumber.metadata.ivr}
+                          onCheckedChange={(checked) => setNewNumber({ 
+                            ...newNumber, 
+                            metadata: { ...newNumber.metadata, ivr: checked }
+                          })}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </TabsContent>
+                
+                <TabsContent value="advanced" className="space-y-4">
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="city">City</Label>
+                      <Input
+                        id="city"
+                        placeholder="San Francisco"
+                        value={newNumber.metadata.city}
+                        onChange={(e) => setNewNumber({ 
+                          ...newNumber, 
+                          metadata: { ...newNumber.metadata, city: e.target.value } 
+                        })}
+                        data-testid="input-city"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="state">State</Label>
+                      <Input
+                        id="state"
+                        placeholder="CA"
+                        value={newNumber.metadata.state}
+                        onChange={(e) => setNewNumber({ 
+                          ...newNumber, 
+                          metadata: { ...newNumber.metadata, state: e.target.value } 
+                        })}
+                        data-testid="input-state"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="country">Country</Label>
+                      <Input
+                        id="country"
+                        placeholder="United States"
+                        value={newNumber.metadata.country}
+                        onChange={(e) => setNewNumber({ 
+                          ...newNumber, 
+                          metadata: { ...newNumber.metadata, country: e.target.value } 
+                        })}
+                        data-testid="input-country"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="timezone">Timezone</Label>
+                      <Input
+                        id="timezone"
+                        placeholder="America/New_York"
+                        value={newNumber.metadata.timezone}
+                        onChange={(e) => setNewNumber({ 
+                          ...newNumber, 
+                          metadata: { ...newNumber.metadata, timezone: e.target.value } 
+                        })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="carrier">Carrier</Label>
+                      <Input
+                        id="carrier"
+                        placeholder="Twilio"
+                        value={newNumber.metadata.carrier}
+                        onChange={(e) => setNewNumber({ 
+                          ...newNumber, 
+                          metadata: { ...newNumber.metadata, carrier: e.target.value } 
+                        })}
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="numberType">Number Type</Label>
+                    <Select
+                      value={newNumber.metadata.numberType}
+                      onValueChange={(value) => setNewNumber({ 
+                        ...newNumber, 
+                        metadata: { ...newNumber.metadata, numberType: value } 
+                      })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select number type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="local">Local</SelectItem>
+                        <SelectItem value="toll-free">Toll-Free</SelectItem>
+                        <SelectItem value="mobile">Mobile</SelectItem>
+                        <SelectItem value="national">National</SelectItem>
+                        <SelectItem value="international">International</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label>Business Hours</Label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <Input
+                        placeholder="Start (09:00)"
+                        value={newNumber.metadata.businessHours?.start}
+                        onChange={(e) => setNewNumber({ 
+                          ...newNumber, 
+                          metadata: { 
+                            ...newNumber.metadata, 
+                            businessHours: {
+                              ...newNumber.metadata.businessHours!,
+                              start: e.target.value
+                            }
+                          } 
+                        })}
+                      />
+                      <Input
+                        placeholder="End (17:00)"
+                        value={newNumber.metadata.businessHours?.end}
+                        onChange={(e) => setNewNumber({ 
+                          ...newNumber, 
+                          metadata: { 
+                            ...newNumber.metadata, 
+                            businessHours: {
+                              ...newNumber.metadata.businessHours!,
+                              end: e.target.value
+                            }
+                          } 
+                        })}
+                      />
+                      <Input
+                        placeholder="Timezone"
+                        value={newNumber.metadata.businessHours?.timezone}
+                        onChange={(e) => setNewNumber({ 
+                          ...newNumber, 
+                          metadata: { 
+                            ...newNumber.metadata, 
+                            businessHours: {
+                              ...newNumber.metadata.businessHours!,
+                              timezone: e.target.value
+                            }
+                          } 
+                        })}
+                      />
+                    </div>
+                  </div>
+                </TabsContent>
+              </Tabs>
               
-              <p className="text-xs text-muted-foreground mt-2">
-                These URLs are automatically configured when you save your Twilio credentials.
-              </p>
-            </div>
-          )}
-
-          {/* Action Buttons */}
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => testConnectionMutation.mutate()}
-              disabled={testConnectionMutation.isPending || !twilioConfig?.configured}
-              data-testid="button-test-connection"
-            >
-              {testConnectionMutation.isPending ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <TestTube className="h-4 w-4 mr-2" />
-              )}
-              Test Connection
-            </Button>
-            
-            <Button
-              size="sm"
-              onClick={() => setIsConfigDialogOpen(true)}
-              data-testid="button-configure-twilio"
-            >
-              <Settings2 className="h-4 w-4 mr-2" />
-              Configure Twilio
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button 
+                  onClick={() => addNumberMutation.mutate(newNumber)}
+                  disabled={!newNumber.phoneNumber || addNumberMutation.isPending}
+                  data-testid="button-confirm-add"
+                >
+                  {addNumberMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  Add Number
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-5">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Numbers</CardTitle>
-            <Smartphone className="h-4 w-4 text-muted-foreground" />
+            <Phone className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" data-testid="stat-total">{stats.total}</div>
+            <div className="text-2xl font-bold" data-testid="text-total-numbers">{stats.total}</div>
+            <p className="text-xs text-muted-foreground">
+              Across all projects
+            </p>
           </CardContent>
         </Card>
-
+        
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Numbers</CardTitle>
-            <Activity className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Active</CardTitle>
+            <Activity className="h-4 w-4 text-green-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" data-testid="stat-active">{stats.active}</div>
+            <div className="text-2xl font-bold" data-testid="text-active-numbers">{stats.active}</div>
+            <p className="text-xs text-muted-foreground">
+              Ready for calls
+            </p>
           </CardContent>
         </Card>
-
+        
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Assigned to Projects</CardTitle>
-            <FolderKanban className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">With Agents</CardTitle>
+            <Bot className="h-4 w-4 text-blue-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" data-testid="stat-assigned">{stats.assigned}</div>
+            <div className="text-2xl font-bold" data-testid="text-assigned-numbers">{stats.assigned}</div>
+            <p className="text-xs text-muted-foreground">
+              Agent assigned
+            </p>
           </CardContent>
         </Card>
-
+        
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">With Projects</CardTitle>
+            <FolderKanban className="h-4 w-4 text-purple-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold" data-testid="text-project-numbers">{stats.withProjects}</div>
+            <p className="text-xs text-muted-foreground">
+              Project assigned
+            </p>
+          </CardContent>
+        </Card>
+        
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Monthly Cost</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
+            <DollarSign className="h-4 w-4 text-orange-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" data-testid="stat-cost">
+            <div className="text-2xl font-bold" data-testid="text-monthly-cost">
               ${stats.monthlyCost.toFixed(2)}
             </div>
+            <p className="text-xs text-muted-foreground">
+              Total monthly fees
+            </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Phone Numbers Table */}
+      {/* Filters */}
       <Card>
         <CardHeader>
-          <CardTitle>Phone Numbers</CardTitle>
-          <CardDescription>
-            All your Twilio phone numbers and their current assignments
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <CardTitle>Phone Number Management</CardTitle>
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search numbers..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-8 w-64"
+                  data-testid="input-search"
+                />
+              </div>
+              <Select value={filterStatus} onValueChange={(value: any) => setFilterStatus(value)}>
+                <SelectTrigger className="w-32" data-testid="select-filter-status">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="inactive">Inactive</SelectItem>
+                  <SelectItem value="suspended">Suspended</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={filterProject} onValueChange={setFilterProject}>
+                <SelectTrigger className="w-40" data-testid="select-filter-project">
+                  <SelectValue placeholder="Project" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Projects</SelectItem>
+                  {projects.map(project => (
+                    <SelectItem key={project.id} value={project.id}>{project.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
-              <p className="text-muted-foreground">Loading phone numbers...</p>
+              <Loader2 className="h-8 w-8 animate-spin" />
             </div>
-          ) : phoneNumbers.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 space-y-4">
-              <Phone className="h-12 w-12 text-muted-foreground" />
-              <p className="text-muted-foreground">No phone numbers found</p>
-              <Button 
-                variant="outline" 
-                onClick={() => setIsAddDialogOpen(true)}
-                data-testid="button-add-first-number"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add Your First Number
-              </Button>
+          ) : filteredNumbers.length === 0 ? (
+            <div className="text-center py-8">
+              <Phone className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+              <h3 className="text-lg font-medium">No phone numbers found</h3>
+              <p className="text-muted-foreground">
+                {searchQuery || filterStatus !== "all" || filterProject !== "all" 
+                  ? "Try adjusting your filters"
+                  : "Get started by adding a phone number"}
+              </p>
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Phone Number</TableHead>
-                  <TableHead>Friendly Name</TableHead>
-                  <TableHead>Project</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Capabilities</TableHead>
-                  <TableHead>Region</TableHead>
-                  <TableHead>Monthly Fee</TableHead>
-                  <TableHead>Last Used</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {phoneNumbers.map((number) => (
-                  <TableRow key={number.id} data-testid={`row-phone-${number.id}`}>
-                    <TableCell className="font-mono">
-                      {formatPhoneNumber(number.phoneNumber)}
-                    </TableCell>
-                    <TableCell>{number.friendlyName || "-"}</TableCell>
-                    <TableCell>
-                      {number.projectId ? (
-                        <Select
-                          value={number.projectId}
-                          onValueChange={(value) => 
-                            updateAssignmentMutation.mutate({ 
-                              id: number.id, 
-                              projectId: value || null 
-                            })
-                          }
-                        >
-                          <SelectTrigger className="w-[180px]" data-testid={`select-project-${number.id}`}>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">Unassigned</SelectItem>
-                            {projects.map((project) => (
-                              <SelectItem key={project.id} value={project.id}>
-                                {project.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <Badge variant="secondary">Unassigned</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        {getStatusIcon(number.status)}
-                        <span className="capitalize">{number.status}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex gap-1">
-                        {number.capabilities?.voice && (
-                          <Badge variant="outline" className="text-xs">
-                            <Phone className="h-3 w-3 mr-1" />
-                            Voice
-                          </Badge>
-                        )}
-                        {number.capabilities?.sms && (
-                          <Badge variant="outline" className="text-xs">SMS</Badge>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1">
-                        <Globe className="h-3 w-3" />
-                        {number.region || "Unknown"}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      ${typeof number.monthlyFee === 'number' 
-                        ? number.monthlyFee.toFixed(2) 
-                        : (parseFloat(number.monthlyFee || '0') || 0).toFixed(2)}
-                    </TableCell>
-                    <TableCell>
-                      {number.lastUsed ? (
-                        <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                          <Calendar className="h-3 w-3" />
-                          {new Date(number.lastUsed).toLocaleDateString()}
-                        </div>
-                      ) : (
-                        "-"
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => deleteNumberMutation.mutate(number.id)}
-                        disabled={deleteNumberMutation.isPending}
-                        data-testid={`button-delete-${number.id}`}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </TableCell>
+            <TooltipProvider>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[30px]"></TableHead>
+                    <TableHead>Phone Number</TableHead>
+                    <TableHead>Name / Location</TableHead>
+                    <TableHead>Project</TableHead>
+                    <TableHead>Agent</TableHead>
+                    <TableHead>Capabilities</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Cost</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {filteredNumbers.map((number) => {
+                    const countryInfo = getCountryFromPhone(number.phoneNumber);
+                    const timezone = getTimezoneForNumber(number.phoneNumber) || number.metadata?.timezone;
+                    const numberType = detectNumberType(number.phoneNumber) || number.metadata?.numberType;
+                    const isExpanded = expandedRows.has(number.id);
+                    
+                    return (
+                      <>
+                        <TableRow key={number.id} data-testid={`row-phone-${number.id}`}>
+                          <TableCell>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              onClick={() => toggleRowExpand(number.id)}
+                            >
+                              {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                            </Button>
+                          </TableCell>
+                          <TableCell className="font-medium">
+                            <div className="flex items-center gap-2">
+                              {countryInfo && (
+                                <Tooltip>
+                                  <TooltipTrigger>
+                                    <span className="text-xl" data-testid={`flag-${number.id}`}>
+                                      {countryInfo.flag}
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    {countryInfo.name} ({countryInfo.dialCode})
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
+                              <a 
+                                href={getCallUrl(number.phoneNumber)}
+                                className="hover:underline text-blue-600 dark:text-blue-400 flex items-center gap-1"
+                                data-testid={`link-phone-${number.id}`}
+                              >
+                                {formatPhoneNumber(number.phoneNumber)}
+                                <PhoneCall className="h-3 w-3" />
+                              </a>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="space-y-1">
+                              <div className="font-medium">{number.friendlyName || 'Unnamed'}</div>
+                              <div className="text-xs text-muted-foreground flex items-center gap-1">
+                                <MapPin className="h-3 w-3" />
+                                {countryInfo?.name || number.metadata?.country || number.region || 'Unknown'}
+                                {(number.metadata?.city || number.metadata?.state) && (
+                                  <span>
+                                    {number.metadata?.city && `, ${number.metadata.city}`}
+                                    {number.metadata?.state && `, ${number.metadata.state}`}
+                                  </span>
+                                )}
+                              </div>
+                              {numberType && (
+                                <Badge variant="outline" className="text-xs">
+                                  {numberType}
+                                </Badge>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {number.projectId ? (
+                              <div className="flex items-center gap-1">
+                                <FolderKanban className="h-3 w-3" />
+                                <span className="text-sm">{number.projectName || 'Unknown'}</span>
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground text-sm">Unassigned</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <Select
+                              value={number.agentId || "none"}
+                              onValueChange={(value) => {
+                                assignAgentMutation.mutate({
+                                  id: number.id,
+                                  agentId: value === "none" ? null : value
+                                });
+                              }}
+                            >
+                              <SelectTrigger className="w-40" data-testid={`select-agent-${number.id}`}>
+                                <SelectValue placeholder="Select agent">
+                                  {number.agentId ? (
+                                    <div className="flex items-center gap-1">
+                                      <Bot className="h-3 w-3" />
+                                      {number.agentName || 'Unknown'}
+                                    </div>
+                                  ) : (
+                                    <span className="text-muted-foreground">No agent</span>
+                                  )}
+                                </SelectValue>
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">No agent</SelectItem>
+                                {agents.map((agent) => (
+                                  <SelectItem key={agent.id} value={agent.id}>
+                                    <div className="flex items-center gap-1">
+                                      <Bot className="h-3 w-3" />
+                                      {agent.name}
+                                    </div>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-1">
+                              {number.capabilities.voice && (
+                                <Tooltip>
+                                  <TooltipTrigger>
+                                    <Badge variant="outline" className="text-xs">
+                                      <PhoneCall className="h-3 w-3" />
+                                    </Badge>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Voice calls enabled</TooltipContent>
+                                </Tooltip>
+                              )}
+                              {number.capabilities.sms && (
+                                <Tooltip>
+                                  <TooltipTrigger>
+                                    <Badge variant="outline" className="text-xs">
+                                      <MessageSquare className="h-3 w-3" />
+                                    </Badge>
+                                  </TooltipTrigger>
+                                  <TooltipContent>SMS enabled</TooltipContent>
+                                </Tooltip>
+                              )}
+                              {number.capabilities.mms && (
+                                <Tooltip>
+                                  <TooltipTrigger>
+                                    <Badge variant="outline" className="text-xs">
+                                      MMS
+                                    </Badge>
+                                  </TooltipTrigger>
+                                  <TooltipContent>MMS enabled</TooltipContent>
+                                </Tooltip>
+                              )}
+                              {number.capabilities.fax && (
+                                <Tooltip>
+                                  <TooltipTrigger>
+                                    <Badge variant="outline" className="text-xs">
+                                      FAX
+                                    </Badge>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Fax enabled</TooltipContent>
+                                </Tooltip>
+                              )}
+                            </div>
+                            {number.metadata && (
+                              <div className="flex gap-1 mt-1">
+                                {number.metadata.callRecording && (
+                                  <Tooltip>
+                                    <TooltipTrigger>
+                                      <Badge variant="secondary" className="text-xs">
+                                        <Mic className="h-3 w-3" />
+                                      </Badge>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Call recording enabled</TooltipContent>
+                                  </Tooltip>
+                                )}
+                                {number.metadata.voicemail && (
+                                  <Tooltip>
+                                    <TooltipTrigger>
+                                      <Badge variant="secondary" className="text-xs">
+                                        <Voicemail className="h-3 w-3" />
+                                      </Badge>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Voicemail enabled</TooltipContent>
+                                  </Tooltip>
+                                )}
+                                {number.metadata.ivr && (
+                                  <Tooltip>
+                                    <TooltipTrigger>
+                                      <Badge variant="secondary" className="text-xs">
+                                        IVR
+                                      </Badge>
+                                    </TooltipTrigger>
+                                    <TooltipContent>IVR system enabled</TooltipContent>
+                                  </Tooltip>
+                                )}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              {getStatusIcon(number.status)}
+                              <span className="text-sm capitalize">{number.status}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-sm">
+                              ${typeof number.monthlyFee === 'string' ? parseFloat(number.monthlyFee) : number.monthlyFee}/mo
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon" data-testid={`button-actions-${number.id}`}>
+                                  <MoreVertical className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => window.open(getCallUrl(number.phoneNumber))}>
+                                  <PhoneCall className="h-4 w-4 mr-2" />
+                                  Call Number
+                                </DropdownMenuItem>
+                                {canSendSMS(number.phoneNumber, number.capabilities) && (
+                                  <DropdownMenuItem onClick={() => window.open(getWhatsAppUrl(number.phoneNumber))}>
+                                    <MessageSquare className="h-4 w-4 mr-2" />
+                                    WhatsApp
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem onClick={() => copyToClipboard(number.phoneNumber, "Phone number")}>
+                                  <Copy className="h-4 w-4 mr-2" />
+                                  Copy Number
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => {
+                                  setSelectedNumber(number);
+                                  setIsEditDialogOpen(true);
+                                }}>
+                                  <Edit className="h-4 w-4 mr-2" />
+                                  Edit Details
+                                </DropdownMenuItem>
+                                <DropdownMenuItem 
+                                  className="text-destructive"
+                                  onClick={() => {
+                                    if (confirm(`Are you sure you want to delete ${number.phoneNumber}?`)) {
+                                      deleteNumberMutation.mutate(number.id);
+                                    }
+                                  }}
+                                >
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  Delete
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </TableCell>
+                        </TableRow>
+                        {isExpanded && (
+                          <TableRow>
+                            <TableCell colSpan={9} className="p-0">
+                              <div className="bg-muted/50 p-4 space-y-4">
+                                <div className="grid grid-cols-4 gap-4">
+                                  <div>
+                                    <Label className="text-xs text-muted-foreground">Total Calls</Label>
+                                    <div className="flex items-center gap-1">
+                                      <PhoneIncoming className="h-4 w-4" />
+                                      <span className="font-medium">{number.totalCalls || 0}</span>
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <Label className="text-xs text-muted-foreground">Total Minutes</Label>
+                                    <div className="flex items-center gap-1">
+                                      <Timer className="h-4 w-4" />
+                                      <span className="font-medium">{number.totalMinutes || 0}</span>
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <Label className="text-xs text-muted-foreground">Timezone</Label>
+                                    <div className="flex items-center gap-1">
+                                      <Clock className="h-4 w-4" />
+                                      <span className="font-medium">{timezone || 'Unknown'}</span>
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <Label className="text-xs text-muted-foreground">Last Used</Label>
+                                    <div className="flex items-center gap-1">
+                                      <Calendar className="h-4 w-4" />
+                                      <span className="font-medium">
+                                        {number.lastUsed ? new Date(number.lastUsed).toLocaleDateString() : 'Never'}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                                
+                                {number.metadata?.businessHours && (
+                                  <div>
+                                    <Label className="text-xs text-muted-foreground">Business Hours</Label>
+                                    <div className="flex items-center gap-2 mt-1">
+                                      <Clock className="h-4 w-4" />
+                                      <span>
+                                        {number.metadata.businessHours.start} - {number.metadata.businessHours.end} 
+                                        ({number.metadata.businessHours.timezone})
+                                      </span>
+                                      <Badge variant="outline" className="text-xs">
+                                        {number.metadata.businessHours.days?.join(', ')}
+                                      </Badge>
+                                    </div>
+                                  </div>
+                                )}
+                                
+                                {number.metadata?.supportedLanguages && number.metadata.supportedLanguages.length > 0 && (
+                                  <div>
+                                    <Label className="text-xs text-muted-foreground">Supported Languages</Label>
+                                    <div className="flex items-center gap-2 mt-1">
+                                      <Languages className="h-4 w-4" />
+                                      {number.metadata.supportedLanguages.map(lang => (
+                                        <Badge key={lang} variant="secondary" className="text-xs">
+                                          {lang}
+                                        </Badge>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                                
+                                <div className="grid grid-cols-2 gap-4">
+                                  {number.voiceUrl && (
+                                    <div>
+                                      <Label className="text-xs text-muted-foreground">Voice Webhook URL</Label>
+                                      <code className="text-xs bg-muted p-1 rounded block mt-1">
+                                        {number.voiceUrl}
+                                      </code>
+                                    </div>
+                                  )}
+                                  {number.smsUrl && (
+                                    <div>
+                                      <Label className="text-xs text-muted-foreground">SMS Webhook URL</Label>
+                                      <code className="text-xs bg-muted p-1 rounded block mt-1">
+                                        {number.smsUrl}
+                                      </code>
+                                    </div>
+                                  )}
+                                </div>
+                                
+                                <div className="flex items-center justify-between pt-2">
+                                  <div className="text-xs text-muted-foreground">
+                                    Created: {new Date(number.createdAt).toLocaleDateString()}
+                                    {number.updatedAt && ` • Updated: ${new Date(number.updatedAt).toLocaleDateString()}`}
+                                  </div>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setSelectedNumber(number);
+                                      setIsEditDialogOpen(true);
+                                    }}
+                                  >
+                                    <Settings2 className="h-3 w-3 mr-1" />
+                                    Configure
+                                  </Button>
+                                </div>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </TooltipProvider>
           )}
         </CardContent>
       </Card>
 
-      {/* Usage Details */}
+      {/* Edit Dialog */}
       {selectedNumber && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Usage Details: {formatPhoneNumber(selectedNumber.phoneNumber)}</CardTitle>
-            <CardDescription>
-              Detailed usage statistics and configuration
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Edit Phone Number</DialogTitle>
+              <DialogDescription>
+                Update the details for {formatPhoneNumber(selectedNumber.phoneNumber)}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
               <div className="space-y-2">
-                <Label>Total Calls</Label>
-                <div className="flex items-center gap-2">
-                  <PhoneOutgoing className="h-4 w-4" />
-                  <span className="text-xl font-semibold">{selectedNumber.totalCalls || 0}</span>
+                <Label htmlFor="edit-name">Friendly Name</Label>
+                <Input
+                  id="edit-name"
+                  value={selectedNumber.friendlyName || ''}
+                  onChange={(e) => setSelectedNumber({ ...selectedNumber, friendlyName: e.target.value })}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-project">Project</Label>
+                  <Select
+                    value={selectedNumber.projectId || "none"}
+                    onValueChange={(value) => setSelectedNumber({ 
+                      ...selectedNumber, 
+                      projectId: value === "none" ? null : value 
+                    })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a project" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      {projects.map((project) => (
+                        <SelectItem key={project.id} value={project.id}>
+                          {project.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-agent">Agent for Inbound</Label>
+                  <Select
+                    value={selectedNumber.agentId || "none"}
+                    onValueChange={(value) => setSelectedNumber({ 
+                      ...selectedNumber, 
+                      agentId: value === "none" ? null : value 
+                    })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select an agent" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      {agents.map((agent) => (
+                        <SelectItem key={agent.id} value={agent.id}>
+                          {agent.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>Total Minutes</Label>
-                <div className="flex items-center gap-2">
-                  <Activity className="h-4 w-4" />
-                  <span className="text-xl font-semibold">{selectedNumber.totalMinutes || 0}</span>
-                </div>
+                <Label htmlFor="edit-status">Status</Label>
+                <Select
+                  value={selectedNumber.status}
+                  onValueChange={(value: any) => setSelectedNumber({ ...selectedNumber, status: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="inactive">Inactive</SelectItem>
+                    <SelectItem value="suspended">Suspended</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
-                <Label>Created</Label>
-                <p className="text-sm text-muted-foreground">
-                  {new Date(selectedNumber.createdAt).toLocaleDateString()}
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label>Voice URL</Label>
-                <p className="text-sm text-muted-foreground font-mono">
-                  {selectedNumber.voiceUrl || "Not configured"}
-                </p>
+                <Label htmlFor="edit-fee">Monthly Fee ($)</Label>
+                <Input
+                  id="edit-fee"
+                  type="number"
+                  step="0.01"
+                  value={selectedNumber.monthlyFee}
+                  onChange={(e) => setSelectedNumber({ ...selectedNumber, monthlyFee: e.target.value })}
+                />
               </div>
             </div>
-          </CardContent>
-        </Card>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => updateNumberMutation.mutate({ id: selectedNumber.id, data: selectedNumber })}
+                disabled={updateNumberMutation.isPending}
+              >
+                {updateNumberMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Save Changes
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
-
-      {/* Twilio Configuration Dialog */}
-      <Dialog open={isConfigDialogOpen} onOpenChange={setIsConfigDialogOpen}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>Configure Twilio</DialogTitle>
-            <DialogDescription>
-              Enter your Twilio credentials to enable phone call functionality. These credentials will be securely stored and used to configure webhooks automatically.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="account-sid">
-                Account SID
-                <span className="text-xs text-muted-foreground ml-2">
-                  Found in your Twilio Console
-                </span>
-              </Label>
-              <div className="relative">
-                <Input
-                  id="account-sid"
-                  type={showAccountSid ? "text" : "password"}
-                  placeholder="AC..."
-                  value={configForm.accountSid}
-                  onChange={(e) => setConfigForm({ ...configForm, accountSid: e.target.value })}
-                  className="pr-10 font-mono"
-                  data-testid="input-account-sid"
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-0 top-0 h-full px-3"
-                  onClick={() => setShowAccountSid(!showAccountSid)}
-                  data-testid="button-toggle-account-sid"
-                >
-                  {showAccountSid ? (
-                    <EyeOff className="h-4 w-4" />
-                  ) : (
-                    <Eye className="h-4 w-4" />
-                  )}
-                </Button>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="auth-token">
-                Auth Token
-                <span className="text-xs text-muted-foreground ml-2">
-                  Keep this secret and secure
-                </span>
-              </Label>
-              <div className="relative">
-                <Input
-                  id="auth-token"
-                  type={showAuthToken ? "text" : "password"}
-                  placeholder="••••••••••••••••"
-                  value={configForm.authToken}
-                  onChange={(e) => setConfigForm({ ...configForm, authToken: e.target.value })}
-                  className="pr-10 font-mono"
-                  data-testid="input-auth-token"
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-0 top-0 h-full px-3"
-                  onClick={() => setShowAuthToken(!showAuthToken)}
-                  data-testid="button-toggle-auth-token"
-                >
-                  {showAuthToken ? (
-                    <EyeOff className="h-4 w-4" />
-                  ) : (
-                    <Eye className="h-4 w-4" />
-                  )}
-                </Button>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="phone-number">
-                Twilio Phone Number
-                <span className="text-xs text-muted-foreground ml-2">
-                  The phone number to use for calls
-                </span>
-              </Label>
-              <Input
-                id="phone-number"
-                type="tel"
-                placeholder="+1234567890"
-                value={configForm.phoneNumber}
-                onChange={(e) => setConfigForm({ ...configForm, phoneNumber: e.target.value })}
-                className="font-mono"
-                data-testid="input-phone-number-config"
-              />
-              <p className="text-xs text-muted-foreground">
-                Include the country code (e.g., +1 for US)
-              </p>
-            </div>
-
-            <div className="rounded-lg border bg-muted/50 p-3">
-              <div className="flex items-center gap-2 mb-2">
-                <AlertCircle className="h-4 w-4 text-orange-500" />
-                <span className="text-sm font-medium">Important</span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Saving these credentials will automatically configure your Twilio phone number with the correct webhook URLs for handling calls. Make sure the phone number is active in your Twilio account.
-              </p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setIsConfigDialogOpen(false);
-                setConfigForm({ accountSid: "", authToken: "", phoneNumber: "" });
-                setShowAccountSid(false);
-                setShowAuthToken(false);
-              }}
-              data-testid="button-cancel-config"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() => updateConfigMutation.mutate(configForm)}
-              disabled={
-                updateConfigMutation.isPending ||
-                !configForm.accountSid ||
-                !configForm.authToken ||
-                !configForm.phoneNumber
-              }
-              data-testid="button-save-config"
-            >
-              {updateConfigMutation.isPending ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Configuring...
-                </>
-              ) : (
-                <>
-                  <Check className="h-4 w-4 mr-2" />
-                  Save & Configure
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
