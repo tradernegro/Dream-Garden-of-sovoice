@@ -485,6 +485,16 @@ export default function EmailManagement() {
                     <RefreshCw className="h-3 w-3" />
                     Sync Emails
                   </Button>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="w-full gap-1"
+                    onClick={() => setIsManualTokenOpen(true)}
+                    data-testid="button-update-token"
+                  >
+                    <Settings2 className="h-3 w-3" />
+                    Update Access Token
+                  </Button>
                 </>
               ) : (
                 <>
