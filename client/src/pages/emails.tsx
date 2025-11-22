@@ -85,6 +85,15 @@ export default function EmailManagement() {
   const [selectedFolder, setSelectedFolder] = useState("inbox");
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [advancedFilters, setAdvancedFilters] = useState({
+    from: "",
+    dateFrom: "",
+    dateTo: "",
+    hasAttachment: false,
+    onlyUnread: false,
+    onlyStarred: false
+  });
+  const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
   const [isComposeOpen, setIsComposeOpen] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isManualTokenOpen, setIsManualTokenOpen] = useState(false);
@@ -491,13 +500,50 @@ export default function EmailManagement() {
   };
 
   const filteredEmails = emails.filter(email => {
-    if (!searchQuery) return true;
-    const query = searchQuery.toLowerCase();
-    return (
-      email.subject.toLowerCase().includes(query) ||
-      email.from.toLowerCase().includes(query) ||
-      email.body.toLowerCase().includes(query)
-    );
+    // Basic search
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      const matchesSearch = (
+        email.subject.toLowerCase().includes(query) ||
+        email.from.toLowerCase().includes(query) ||
+        email.body.toLowerCase().includes(query)
+      );
+      if (!matchesSearch) return false;
+    }
+    
+    // Advanced filters
+    if (advancedFilters.from) {
+      if (!email.from.toLowerCase().includes(advancedFilters.from.toLowerCase())) {
+        return false;
+      }
+    }
+    
+    if (advancedFilters.dateFrom) {
+      const emailDate = new Date(email.receivedAt || email.sentAt || "");
+      const filterDate = new Date(advancedFilters.dateFrom);
+      if (emailDate < filterDate) return false;
+    }
+    
+    if (advancedFilters.dateTo) {
+      const emailDate = new Date(email.receivedAt || email.sentAt || "");
+      const filterDate = new Date(advancedFilters.dateTo);
+      filterDate.setHours(23, 59, 59, 999); // End of day
+      if (emailDate > filterDate) return false;
+    }
+    
+    if (advancedFilters.hasAttachment) {
+      if (!email.attachments || email.attachments.length === 0) return false;
+    }
+    
+    if (advancedFilters.onlyUnread) {
+      if (email.isRead) return false;
+    }
+    
+    if (advancedFilters.onlyStarred) {
+      if (!email.isStarred) return false;
+    }
+    
+    return true;
   });
 
   const unreadCount = emails.filter(e => !e.isRead).length;
@@ -684,15 +730,111 @@ export default function EmailManagement() {
       <div className="flex-1 flex">
         <div className="w-96 border-r">
           <div className="p-4 border-b space-y-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search emails..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
-                data-testid="input-search"
-              />
+            <div className="space-y-2">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="E-Mails suchen..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9"
+                  data-testid="input-search"
+                />
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowAdvancedSearch(!showAdvancedSearch)}
+                className="w-full"
+                data-testid="button-advanced-search"
+              >
+                <Filter className="h-4 w-4 mr-2" />
+                {showAdvancedSearch ? "Erweiterte Filter ausblenden" : "Erweiterte Filter"}
+              </Button>
+              {showAdvancedSearch && (
+                <div className="space-y-3 p-3 border rounded-md bg-muted/50">
+                  <div className="space-y-2">
+                    <Label htmlFor="filter-from" className="text-xs">Von</Label>
+                    <Input
+                      id="filter-from"
+                      placeholder="sender@example.com"
+                      value={advancedFilters.from}
+                      onChange={(e) => setAdvancedFilters({ ...advancedFilters, from: e.target.value })}
+                      className="h-8 text-sm"
+                      data-testid="input-filter-from"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="filter-date-from" className="text-xs">Von Datum</Label>
+                      <Input
+                        id="filter-date-from"
+                        type="date"
+                        value={advancedFilters.dateFrom}
+                        onChange={(e) => setAdvancedFilters({ ...advancedFilters, dateFrom: e.target.value })}
+                        className="h-8 text-sm"
+                        data-testid="input-date-from"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="filter-date-to" className="text-xs">Bis Datum</Label>
+                      <Input
+                        id="filter-date-to"
+                        type="date"
+                        value={advancedFilters.dateTo}
+                        onChange={(e) => setAdvancedFilters({ ...advancedFilters, dateTo: e.target.value })}
+                        className="h-8 text-sm"
+                        data-testid="input-date-to"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="filter-attachment"
+                        checked={advancedFilters.hasAttachment}
+                        onCheckedChange={(checked) => setAdvancedFilters({ ...advancedFilters, hasAttachment: checked as boolean })}
+                        data-testid="checkbox-attachment"
+                      />
+                      <Label htmlFor="filter-attachment" className="text-xs cursor-pointer">Mit Anhängen</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="filter-unread"
+                        checked={advancedFilters.onlyUnread}
+                        onCheckedChange={(checked) => setAdvancedFilters({ ...advancedFilters, onlyUnread: checked as boolean })}
+                        data-testid="checkbox-unread"
+                      />
+                      <Label htmlFor="filter-unread" className="text-xs cursor-pointer">Nur ungelesene</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="filter-starred"
+                        checked={advancedFilters.onlyStarred}
+                        onCheckedChange={(checked) => setAdvancedFilters({ ...advancedFilters, onlyStarred: checked as boolean })}
+                        data-testid="checkbox-starred"
+                      />
+                      <Label htmlFor="filter-starred" className="text-xs cursor-pointer">Nur markierte</Label>
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setAdvancedFilters({
+                      from: "",
+                      dateFrom: "",
+                      dateTo: "",
+                      hasAttachment: false,
+                      onlyUnread: false,
+                      onlyStarred: false
+                    })}
+                    className="w-full"
+                    data-testid="button-clear-filters"
+                  >
+                    Filter zurücksetzen
+                  </Button>
+                </div>
+              )}
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">
