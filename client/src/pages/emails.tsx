@@ -152,7 +152,31 @@ export default function EmailManagement() {
       const response = await fetch("/api/microsoft/auth-url");
       if (response.ok) {
         const { authUrl } = await response.json();
-        window.location.href = authUrl;
+        // Open in new window to avoid Replit iframe issues
+        const authWindow = window.open(authUrl, '_blank', 'width=600,height=700');
+        
+        // Check if popup was blocked
+        if (!authWindow || authWindow.closed || typeof authWindow.closed === 'undefined') {
+          // Fallback: show URL to user to copy
+          toast({
+            title: "Popup blockiert",
+            description: "Bitte kopieren Sie diese URL und öffnen Sie sie in einem neuen Tab",
+          });
+          
+          // Show URL in a dialog or prompt
+          const userConfirm = window.confirm(
+            "OAuth Popup wurde blockiert.\n\n" +
+            "Klicken Sie OK, um die URL in einem neuen Tab zu öffnen, oder\n" +
+            "Kopieren Sie diese URL manuell:\n\n" +
+            authUrl.substring(0, 100) + "..."
+          );
+          
+          if (userConfirm) {
+            window.open(authUrl, '_blank');
+          }
+        }
+        
+        setIsConnecting(false);
       } else {
         throw new Error("Failed to get authorization URL");
       }
