@@ -1384,7 +1384,7 @@ export default function CallsManagement() {
             </Button>
             <Button 
               onClick={() => {
-                handleOutboundCall();
+                handleCall();
                 setShowNewCallDialog(false);
               }}
               data-testid="button-start-call"
