@@ -82,7 +82,17 @@ export default function PhoneNumbers() {
   const [newNumber, setNewNumber] = useState({
     phoneNumber: "",
     friendlyName: "",
-    projectId: ""
+    projectId: "none", // Default to "none" which converts to null
+    monthlyFee: "",
+    voiceEnabled: true,
+    smsEnabled: false,
+    mmsEnabled: false,
+    faxEnabled: false,
+    metadata: {
+      city: "",
+      state: "",
+      country: ""
+    }
   });
 
   // Fetch phone numbers
@@ -103,13 +113,38 @@ export default function PhoneNumbers() {
   // Add phone number mutation
   const addNumberMutation = useMutation({
     mutationFn: async (data: typeof newNumber) => {
-      const response = await apiRequest("POST", "/api/phone-numbers", data);
+      const requestData = {
+        phoneNumber: data.phoneNumber,
+        friendlyName: data.friendlyName,
+        projectId: data.projectId === "none" ? null : data.projectId,
+        monthlyFee: data.monthlyFee || "0.00", // Keep as string for decimal type
+        voiceEnabled: data.voiceEnabled,
+        smsEnabled: data.smsEnabled,
+        mmsEnabled: data.mmsEnabled,
+        faxEnabled: data.faxEnabled,
+        metadata: data.metadata
+      };
+      const response = await apiRequest("POST", "/api/phone-numbers", requestData);
       return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/phone-numbers"] });
       setIsAddDialogOpen(false);
-      setNewNumber({ phoneNumber: "", friendlyName: "", projectId: "" });
+      setNewNumber({ 
+        phoneNumber: "", 
+        friendlyName: "", 
+        projectId: "none", // Reset to "none" which converts to null
+        monthlyFee: "",
+        voiceEnabled: true,
+        smsEnabled: false,
+        mmsEnabled: false,
+        faxEnabled: false,
+        metadata: {
+          city: "",
+          state: "",
+          country: ""
+        }
+      });
       toast({
         title: "Phone number added",
         description: "The phone number has been successfully added to your account.",
@@ -148,7 +183,8 @@ export default function PhoneNumbers() {
   // Update phone number assignment
   const updateAssignmentMutation = useMutation({
     mutationFn: async ({ id, projectId }: { id: string; projectId: string | null }) => {
-      const response = await apiRequest("PATCH", `/api/phone-numbers/${id}`, { projectId });
+      const requestProjectId = projectId === "none" ? null : projectId;
+      const response = await apiRequest("PATCH", `/api/phone-numbers/${id}`, { projectId: requestProjectId });
       return response.json();
     },
     onSuccess: () => {
@@ -193,7 +229,10 @@ export default function PhoneNumbers() {
     total: phoneNumbers.length,
     active: phoneNumbers.filter(n => n.status === "active").length,
     assigned: phoneNumbers.filter(n => n.projectId).length,
-    monthlyCost: phoneNumbers.reduce((sum, n) => sum + (n.monthlyFee || 0), 0)
+    monthlyCost: phoneNumbers.reduce((sum, n) => {
+      const fee = typeof n.monthlyFee === 'string' ? parseFloat(n.monthlyFee) : n.monthlyFee;
+      return sum + (fee || 0);
+    }, 0)
   };
 
   return (
@@ -253,7 +292,7 @@ export default function PhoneNumbers() {
                     <SelectValue placeholder="Select a project" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None</SelectItem>
+                    <SelectItem value="none">None</SelectItem>
                     {projects.map((project) => (
                       <SelectItem key={project.id} value={project.id}>
                         {project.name}
@@ -261,6 +300,99 @@ export default function PhoneNumbers() {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Capabilities</Label>
+                <div className="flex flex-wrap gap-4">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="voice"
+                      checked={newNumber.voiceEnabled}
+                      onChange={(e) => setNewNumber({ ...newNumber, voiceEnabled: e.target.checked })}
+                      className="rounded border-gray-300"
+                      data-testid="checkbox-voice"
+                    />
+                    <Label htmlFor="voice" className="font-normal">Voice</Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="sms"
+                      checked={newNumber.smsEnabled}
+                      onChange={(e) => setNewNumber({ ...newNumber, smsEnabled: e.target.checked })}
+                      className="rounded border-gray-300"
+                      data-testid="checkbox-sms"
+                    />
+                    <Label htmlFor="sms" className="font-normal">SMS</Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="mms"
+                      checked={newNumber.mmsEnabled}
+                      onChange={(e) => setNewNumber({ ...newNumber, mmsEnabled: e.target.checked })}
+                      className="rounded border-gray-300"
+                      data-testid="checkbox-mms"
+                    />
+                    <Label htmlFor="mms" className="font-normal">MMS</Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="fax"
+                      checked={newNumber.faxEnabled}
+                      onChange={(e) => setNewNumber({ ...newNumber, faxEnabled: e.target.checked })}
+                      className="rounded border-gray-300"
+                      data-testid="checkbox-fax"
+                    />
+                    <Label htmlFor="fax" className="font-normal">Fax</Label>
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="fee">Monthly Fee ($)</Label>
+                <Input
+                  id="fee"
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={newNumber.monthlyFee}
+                  onChange={(e) => setNewNumber({ ...newNumber, monthlyFee: e.target.value })}
+                  data-testid="input-monthly-fee"
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="space-y-2">
+                  <Label htmlFor="city">City</Label>
+                  <Input
+                    id="city"
+                    placeholder="San Francisco"
+                    value={newNumber.metadata.city}
+                    onChange={(e) => setNewNumber({ ...newNumber, metadata: { ...newNumber.metadata, city: e.target.value } })}
+                    data-testid="input-city"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="state">State</Label>
+                  <Input
+                    id="state"
+                    placeholder="CA"
+                    value={newNumber.metadata.state}
+                    onChange={(e) => setNewNumber({ ...newNumber, metadata: { ...newNumber.metadata, state: e.target.value } })}
+                    data-testid="input-state"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="country">Country</Label>
+                  <Input
+                    id="country"
+                    placeholder="United States"
+                    value={newNumber.metadata.country}
+                    onChange={(e) => setNewNumber({ ...newNumber, metadata: { ...newNumber.metadata, country: e.target.value } })}
+                    data-testid="input-country"
+                  />
+                </div>
               </div>
             </div>
             <DialogFooter>
@@ -387,7 +519,7 @@ export default function PhoneNumbers() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="">Unassigned</SelectItem>
+                            <SelectItem value="none">Unassigned</SelectItem>
                             {projects.map((project) => (
                               <SelectItem key={project.id} value={project.id}>
                                 {project.name}
@@ -425,7 +557,9 @@ export default function PhoneNumbers() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      ${number.monthlyFee?.toFixed(2) || "0.00"}
+                      ${typeof number.monthlyFee === 'number' 
+                        ? number.monthlyFee.toFixed(2) 
+                        : (parseFloat(number.monthlyFee || '0') || 0).toFixed(2)}
                     </TableCell>
                     <TableCell>
                       {number.lastUsed ? (
