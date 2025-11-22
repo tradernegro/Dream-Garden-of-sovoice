@@ -1704,6 +1704,35 @@ AGENT_CREATE:
       res.status(500).json({ error: "Failed to configure access token" });
     }
   });
+
+  // Use client credentials for application access
+  app.post("/api/microsoft/app-auth", async (req: Request, res: Response) => {
+    try {
+      const { targetMailbox = "info@sovoice.ai" } = req.body;
+      
+      const { microsoftAuth } = await import("./services/microsoft-auth");
+      
+      // Use client credentials to get app-level access
+      await microsoftAuth.acquireTokenByClientCredentials(targetMailbox);
+      
+      // Store the connection status
+      await storage.setSetting("microsoft_connected", true);
+      await storage.setSetting("microsoft_token_acquired", new Date().toISOString());
+      await storage.setSetting("microsoft_email", targetMailbox);
+      await storage.setSetting("microsoft_auth_type", "application");
+      
+      res.json({ 
+        success: true,
+        message: "Application authentication successful",
+        mailbox: targetMailbox
+      });
+    } catch (error) {
+      console.error("Failed to authenticate with client credentials:", error);
+      res.status(500).json({ 
+        error: "Failed to authenticate. Please ensure your Azure App has the correct application permissions (Mail.Read, Mail.ReadWrite) with admin consent." 
+      });
+    }
+  });
   
   // Sync emails from Outlook
   app.post("/api/microsoft/sync", async (req: Request, res: Response) => {

@@ -27,7 +27,8 @@ import {
   AlertCircle,
   RefreshCw,
   Settings2,
-  ExternalLink
+  ExternalLink,
+  Key
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { 
@@ -494,6 +495,35 @@ export default function EmailManagement() {
                   >
                     <Settings2 className="h-3 w-3" />
                     Update Access Token
+                  </Button>
+                  <Button 
+                    variant="default" 
+                    size="sm" 
+                    className="w-full gap-1"
+                    onClick={async () => {
+                      try {
+                        const response = await apiRequest('/api/microsoft/app-auth', 'POST', {
+                          targetMailbox: 'info@sovoice.ai'
+                        });
+                        if (response.success) {
+                          toast({
+                            title: "Authentication Successful",
+                            description: `Connected to ${response.mailbox} using application permissions`,
+                          });
+                          await refetch();
+                        }
+                      } catch (error) {
+                        toast({
+                          title: "Authentication Failed",
+                          description: "Please ensure your Azure App has Mail.Read and Mail.ReadWrite permissions with admin consent",
+                          variant: "destructive",
+                        });
+                      }
+                    }}
+                    data-testid="button-app-auth"
+                  >
+                    <Key className="h-3 w-3" />
+                    Use App Authentication
                   </Button>
                 </>
               ) : (

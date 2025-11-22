@@ -20,10 +20,16 @@ const SCOPES = [
   "https://graph.microsoft.com/User.Read",
 ];
 
+// Scopes for application permissions (client credentials flow)
+const APP_SCOPES = [
+  "https://graph.microsoft.com/.default", // Uses all consented application permissions
+];
+
 export class MicrosoftAuthService {
   private msalClient: ConfidentialClientApplication;
   private accessToken: string | null = null;
   private tokenExpiry: Date | null = null;
+  private targetMailbox: string = "info@sovoice.ai";
 
   constructor() {
     this.msalClient = new ConfidentialClientApplication(msalConfig);
@@ -75,6 +81,29 @@ export class MicrosoftAuthService {
     this.tokenExpiry = new Date(Date.now() + 60 * 60 * 1000);
   }
 
+  // Acquire token using client credentials (application permissions)
+  async acquireTokenByClientCredentials(targetMailbox: string = "info@sovoice.ai"): Promise<string> {
+    const tokenRequest = {
+      scopes: APP_SCOPES,
+      skipCache: true, // Always get a fresh token
+    };
+
+    try {
+      const response = await this.msalClient.acquireTokenByClientCredential(tokenRequest);
+      if (response && response.accessToken) {
+        this.accessToken = response.accessToken;
+        this.tokenExpiry = response.expiresOn || null;
+        // Store the target mailbox for use in API calls
+        this.targetMailbox = targetMailbox;
+        return response.accessToken;
+      }
+      throw new Error("No access token received");
+    } catch (error) {
+      console.error("Error acquiring app token:", error);
+      throw new Error("Failed to acquire application access token");
+    }
+  }
+
   // Get or refresh access token
   async getAccessToken(): Promise<string> {
     // Check if token exists and is still valid
@@ -122,27 +151,30 @@ export class MicrosoftAuthService {
     try {
       const client = await this.getGraphClient();
       
-      let endpoint = "/me/mailFolders";
+      // Use /users/{mailbox} for application permissions
+      // Use /me for delegated permissions
+      const basePath = this.targetMailbox ? `/users/${this.targetMailbox}` : "/me";
+      let endpoint = `${basePath}/mailFolders`;
       
       // Map folder names to Graph API endpoints
       switch (folder.toLowerCase()) {
         case "inbox":
-          endpoint = "/me/mailFolders/inbox/messages";
+          endpoint = `${basePath}/mailFolders/inbox/messages`;
           break;
         case "sent":
-          endpoint = "/me/mailFolders/sentitems/messages";
+          endpoint = `${basePath}/mailFolders/sentitems/messages`;
           break;
         case "drafts":
-          endpoint = "/me/mailFolders/drafts/messages";
+          endpoint = `${basePath}/mailFolders/drafts/messages`;
           break;
         case "archive":
-          endpoint = "/me/mailFolders/archive/messages";
+          endpoint = `${basePath}/mailFolders/archive/messages`;
           break;
         case "trash":
-          endpoint = "/me/mailFolders/deleteditems/messages";
+          endpoint = `${basePath}/mailFolders/deleteditems/messages`;
           break;
         default:
-          endpoint = "/me/messages";
+          endpoint = `${basePath}/messages`;
       }
 
       const response = await client
