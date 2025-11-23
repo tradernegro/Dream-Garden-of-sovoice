@@ -79,6 +79,8 @@ export default function CalendarPage() {
     enabled: connectionStatus?.connected,
   });
 
+  const [authUrl, setAuthUrl] = useState<string | null>(null);
+
   // Connect to Calendly OAuth
   const connectMutation = useMutation({
     mutationFn: async () => {
@@ -88,45 +90,35 @@ export default function CalendarPage() {
     },
     onSuccess: (data) => {
       if (data.authUrl) {
-        // Open OAuth URL in new window
+        // Try to open in popup first
         const authWindow = window.open(data.authUrl, "calendly-oauth", "width=600,height=700");
         
-        // Monitor the popup window
-        const checkInterval = setInterval(() => {
-          if (authWindow && authWindow.closed) {
-            clearInterval(checkInterval);
-            setIsConnecting(false);
-            // Refetch status after window closes
-            setTimeout(() => {
-              refetchStatus();
-            }, 1000);
-          }
-        }, 500);
-        
-        // Also check for URL params in case of redirect
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.get('connected') === 'true') {
-          setIsConnecting(false);
+        if (!authWindow || authWindow.closed || typeof authWindow.closed === 'undefined') {
+          // Popup was blocked, show direct link instead
+          setAuthUrl(data.authUrl);
           toast({
-            title: "Connected Successfully",
-            description: "Your Calendly account has been connected.",
+            title: "Popup Blocked",
+            description: "Click the link below to connect your Calendly account",
           });
-          // Clear the URL params
-          window.history.replaceState({}, '', window.location.pathname);
-        } else if (urlParams.get('error') === 'connection_failed') {
-          setIsConnecting(false);
-          toast({
-            title: "Connection Failed",
-            description: "Failed to connect to Calendly. Please try again.",
-            variant: "destructive",
-          });
-          // Clear the URL params
-          window.history.replaceState({}, '', window.location.pathname);
+        } else {
+          // Monitor the popup window
+          const checkInterval = setInterval(() => {
+            if (authWindow && authWindow.closed) {
+              clearInterval(checkInterval);
+              setIsConnecting(false);
+              setAuthUrl(null);
+              // Refetch status after window closes
+              setTimeout(() => {
+                refetchStatus();
+              }, 1000);
+            }
+          }, 500);
         }
       }
     },
     onError: (error) => {
       setIsConnecting(false);
+      setAuthUrl(null);
       toast({
         title: "Connection failed",
         description: "Failed to connect to Calendly. Please try again.",
@@ -280,24 +272,64 @@ export default function CalendarPage() {
           <CardContent className="text-center">
             {isConnecting ? (
               <div className="space-y-4">
-                <RefreshCw className="h-8 w-8 mx-auto animate-spin text-primary" />
-                <p className="text-sm text-muted-foreground">
-                  Complete the authorization in the popup window...
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  If the popup was blocked or closed, click below to try again
-                </p>
-                <Button 
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setIsConnecting(false);
-                    setTimeout(() => connectMutation.mutate(), 100);
-                  }}
-                  data-testid="button-retry-calendly"
-                >
-                  Retry Connection
-                </Button>
+                {authUrl ? (
+                  // Show direct link if popup was blocked
+                  <>
+                    <div className="p-4 bg-orange-50 dark:bg-orange-950/20 rounded-lg">
+                      <p className="text-sm font-medium text-orange-900 dark:text-orange-200 mb-2">
+                        Popup blocked - Use this link instead:
+                      </p>
+                      <Button 
+                        variant="default"
+                        size="lg"
+                        asChild
+                        data-testid="button-direct-calendly"
+                      >
+                        <a href={authUrl} target="_blank" rel="noopener noreferrer">
+                          <Link2 className="mr-2 h-5 w-5" />
+                          Open Calendly Authorization
+                        </a>
+                      </Button>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        After authorizing, come back here and your connection will be detected
+                      </p>
+                    </div>
+                    <Button 
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setIsConnecting(false);
+                        setAuthUrl(null);
+                      }}
+                      data-testid="button-cancel-calendly"
+                    >
+                      Cancel
+                    </Button>
+                  </>
+                ) : (
+                  // Show loading spinner if popup opened
+                  <>
+                    <RefreshCw className="h-8 w-8 mx-auto animate-spin text-primary" />
+                    <p className="text-sm text-muted-foreground">
+                      Complete the authorization in the popup window...
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      If the popup was blocked or closed, click below to try again
+                    </p>
+                    <Button 
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setIsConnecting(false);
+                        setAuthUrl(null);
+                        setTimeout(() => connectMutation.mutate(), 100);
+                      }}
+                      data-testid="button-retry-calendly"
+                    >
+                      Retry Connection
+                    </Button>
+                  </>
+                )}
               </div>
             ) : (
               <Button 
