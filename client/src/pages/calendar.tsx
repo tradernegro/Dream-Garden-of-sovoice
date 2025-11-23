@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Calendar, Clock, Link2, Plus, RefreshCw, Calendar as CalendarIcon, Settings, CheckCircle2, XCircle } from "lucide-react";
+import { Calendar, Clock, Link2, Plus, RefreshCw, Calendar as CalendarIcon, Settings, CheckCircle2, XCircle, Key } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 
 interface CalendlyEvent {
   id: string;
@@ -46,6 +47,8 @@ export default function CalendarPage() {
   const { toast } = useToast();
   const [isConnecting, setIsConnecting] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<CalendlyEvent | null>(null);
+  const [showManualTokenDialog, setShowManualTokenDialog] = useState(false);
+  const [manualToken, setManualToken] = useState("");
 
   // Fetch Calendly connection status
   const { data: connectionStatus, isLoading: isLoadingStatus, refetch: refetchStatus } = useQuery({
@@ -138,6 +141,32 @@ export default function CalendarPage() {
       toast({
         title: "Disconnected",
         description: "Successfully disconnected from Calendly.",
+      });
+    },
+  });
+
+  // Save manual token
+  const saveManualTokenMutation = useMutation({
+    mutationFn: async (token: string) => {
+      const response = await apiRequest("POST", "/api/calendly/manual-token", { token });
+      return response.json();
+    },
+    onSuccess: () => {
+      setShowManualTokenDialog(false);
+      setManualToken("");
+      setIsConnecting(false);
+      setAuthUrl(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/calendly/status"] });
+      toast({
+        title: "Connected Successfully",
+        description: "Your Calendly account has been connected using the manual token.",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Connection Failed",
+        description: "Invalid token or unable to connect. Please check your token and try again.",
+        variant: "destructive",
       });
     },
   });
@@ -332,15 +361,95 @@ export default function CalendarPage() {
                 )}
               </div>
             ) : (
-              <Button 
-                size="lg" 
-                onClick={() => connectMutation.mutate()}
-                disabled={connectMutation.isPending}
-                data-testid="button-connect-calendly"
-              >
-                <Link2 className="mr-2 h-5 w-5" />
-                Connect to Calendly
-              </Button>
+              <div className="space-y-4">
+                <Button 
+                  size="lg" 
+                  onClick={() => connectMutation.mutate()}
+                  disabled={connectMutation.isPending}
+                  data-testid="button-connect-calendly"
+                >
+                  <Link2 className="mr-2 h-5 w-5" />
+                  Connect to Calendly
+                </Button>
+                
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <span className="w-full border-t" />
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-background px-2 text-muted-foreground">Or</span>
+                  </div>
+                </div>
+                
+                <Dialog open={showManualTokenDialog} onOpenChange={setShowManualTokenDialog}>
+                  <DialogTrigger asChild>
+                    <Button 
+                      variant="outline"
+                      size="lg"
+                      data-testid="button-manual-token"
+                    >
+                      <Key className="mr-2 h-5 w-5" />
+                      Use Personal Access Token
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Manual Token Configuration</DialogTitle>
+                      <DialogDescription>
+                        If OAuth isn't working, you can manually enter a Calendly Personal Access Token.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <div className="text-sm space-y-2">
+                        <p className="font-medium">How to get your token:</p>
+                        <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
+                          <li>Go to <a href="https://calendly.com/app/personal_access_tokens" target="_blank" className="underline">Calendly Personal Access Tokens</a></li>
+                          <li>Click "Create Personal Access Token"</li>
+                          <li>Give it a name (e.g., "SoVoice AI")</li>
+                          <li>Copy the token and paste it below</li>
+                        </ol>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label htmlFor="token">Personal Access Token</Label>
+                        <Textarea
+                          id="token"
+                          placeholder="Paste your Calendly Personal Access Token here..."
+                          value={manualToken}
+                          onChange={(e) => setManualToken(e.target.value)}
+                          className="min-h-[100px] font-mono text-sm"
+                        />
+                      </div>
+                      
+                      <div className="flex justify-end space-x-2">
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setShowManualTokenDialog(false);
+                            setManualToken("");
+                          }}
+                          disabled={saveManualTokenMutation.isPending}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          onClick={() => saveManualTokenMutation.mutate(manualToken)}
+                          disabled={!manualToken.trim() || saveManualTokenMutation.isPending}
+                        >
+                          {saveManualTokenMutation.isPending ? (
+                            <>
+                              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                              Connecting...
+                            </>
+                          ) : (
+                            "Connect"
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              </div>
             )}
           </CardContent>
         </Card>

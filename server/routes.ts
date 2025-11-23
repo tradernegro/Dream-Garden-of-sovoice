@@ -1186,6 +1186,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Manual token configuration for Calendly
+  app.post("/api/calendly/manual-token", async (req: Request, res: Response) => {
+    try {
+      const { token } = req.body;
+      
+      if (!token) {
+        return res.status(400).json({ error: "Token is required" });
+      }
+      
+      // Test the token by fetching user info
+      const userResponse = await fetch("https://api.calendly.com/users/me", {
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json"
+        }
+      });
+      
+      if (!userResponse.ok) {
+        return res.status(401).json({ error: "Invalid token" });
+      }
+      
+      const userData = await userResponse.json();
+      const userInfo = userData.resource;
+      
+      // Store the token and user info
+      await storage.setSetting("calendly_tokens", {
+        access_token: token,
+        refresh_token: null, // Manual tokens don't have refresh tokens
+        expires_at: Date.now() + (365 * 24 * 60 * 60 * 1000), // Set far future expiry
+        scope: "manual",
+        organization: userInfo.organization || null,
+        owner: userInfo.uri || null,
+        manual: true // Mark as manual token
+      });
+      
+      await storage.setSetting("calendly_user", {
+        uri: userInfo.uri,
+        name: userInfo.name,
+        email: userInfo.email,
+        scheduling_url: userInfo.scheduling_url,
+        timezone: userInfo.timezone,
+        avatar_url: userInfo.avatar_url,
+        organization: userInfo.organization
+      });
+      
+      res.json({ 
+        success: true,
+        user: {
+          name: userInfo.name,
+          email: userInfo.email
+        }
+      });
+    } catch (error) {
+      console.error("[Calendly] Manual token error:", error);
+      res.status(500).json({ error: "Failed to configure manual token" });
+    }
+  });
+
   // Calendly webhook endpoint
   app.post("/api/calendly/webhook", async (req: Request, res: Response) => {
     try {
