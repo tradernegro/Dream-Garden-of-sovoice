@@ -34,7 +34,15 @@ export class AppointmentScheduler {
         throw new Error("Calendly is not configured for this agent");
       }
 
-      // Get the event type details to construct the scheduling link
+      // Check if Calendly is authenticated
+      const { getValidAccessToken } = await import("../calendly-client.js");
+      const accessToken = await getValidAccessToken();
+      
+      if (!accessToken) {
+        throw new Error("Calendly authentication expired or missing. Please reconnect Calendly in settings.");
+      }
+
+      // Get the event type details
       const eventTypes = await fetchCalendlyEventTypes({ count: 100 });
       const eventType = eventTypes.find((et: any) => et.uri === agent.calendlyEventType);
       
@@ -42,43 +50,196 @@ export class AppointmentScheduler {
         throw new Error("Calendly event type not found");
       }
 
-      // Extract the scheduling link from the event type
-      const schedulingUrl = eventType.scheduling_url;
-
-      // Create invitee data for the appointment
-      const inviteeData = {
-        email: customerEmail,
-        name: customerName,
-        phone: customerPhone,
-        questions_and_answers: additionalNotes ? [{
-          question: "Additional Notes",
-          answer: additionalNotes
-        }] : [],
-        text_reminder_number: customerPhone,
-      };
-
-      // Since Calendly API doesn't support direct appointment creation,
-      // we'll generate a scheduling link with pre-filled data
-      const preFilledUrl = this.buildPrefilledSchedulingUrl(schedulingUrl, inviteeData);
-
-      // Send confirmation email with the scheduling link
-      await this.sendAppointmentEmail({
+      // Try to book appointment directly via API (requires paid plan)
+      const appointmentResult = await this.createEventInvitee({
+        eventTypeUri: agent.calendlyEventType,
         customerEmail,
         customerName,
-        agentName: agent.name,
-        schedulingUrl: preFilledUrl,
+        customerPhone,
         preferredTime,
         additionalNotes,
+        accessToken,
       });
 
-      return {
-        success: true,
-        schedulingUrl: preFilledUrl,
-        message: `Appointment scheduling link sent to ${customerEmail}`,
+      if (appointmentResult.success) {
+        // Appointment was booked directly
+        console.log(`[AppointmentScheduler] Appointment booked directly for ${customerEmail}`);
+        
+        // Send confirmation email
+        await this.sendAppointmentEmail({
+          customerEmail,
+          customerName,
+          agentName: agent.name,
+          schedulingUrl: appointmentResult.rescheduleUrl,
+          preferredTime: appointmentResult.scheduledTime,
+          additionalNotes,
+          isConfirmed: true,
+        });
+
+        return {
+          success: true,
+          schedulingUrl: appointmentResult.rescheduleUrl,
+          eventUri: appointmentResult.eventUri,
+          message: `Appointment confirmed for ${customerEmail} at ${appointmentResult.scheduledTime}`,
+        };
+      } else {
+        // Fallback: Generate a pre-filled scheduling link (for free plans)
+        console.log(`[AppointmentScheduler] Direct booking failed, falling back to scheduling link`);
+        
+        const schedulingUrl = eventType.scheduling_url;
+        const inviteeData = {
+          email: customerEmail,
+          name: customerName,
+          phone: customerPhone,
+          questions_and_answers: additionalNotes ? [{
+            question: "Additional Notes",
+            answer: additionalNotes
+          }] : [],
+          text_reminder_number: customerPhone,
+        };
+
+        const preFilledUrl = this.buildPrefilledSchedulingUrl(schedulingUrl, inviteeData);
+
+        // Send invitation email with scheduling link
+        await this.sendAppointmentEmail({
+          customerEmail,
+          customerName,
+          agentName: agent.name,
+          schedulingUrl: preFilledUrl,
+          preferredTime,
+          additionalNotes,
+          isConfirmed: false,
+        });
+
+        return {
+          success: true,
+          schedulingUrl: preFilledUrl,
+          message: `Appointment scheduling link sent to ${customerEmail}`,
+        };
+      }
+    } catch (error: any) {
+      console.error("[AppointmentScheduler] Error scheduling appointment:", error);
+      
+      // Provide clearer error messages
+      if (error.message?.includes("authentication")) {
+        throw new Error("Calendly authentication failed. Please reconnect Calendly in settings.");
+      } else if (error.message?.includes("event type")) {
+        throw new Error("Selected Calendly event type is no longer available. Please update agent settings.");
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  /**
+   * Create event invitee via Calendly API (requires paid plan)
+   */
+  private async createEventInvitee({
+    eventTypeUri,
+    customerEmail,
+    customerName,
+    customerPhone,
+    preferredTime,
+    additionalNotes,
+    accessToken,
+  }: {
+    eventTypeUri: string;
+    customerEmail: string;
+    customerName: string;
+    customerPhone?: string;
+    preferredTime?: string;
+    additionalNotes?: string;
+    accessToken: string;
+  }): Promise<{
+    success: boolean;
+    eventUri?: string;
+    rescheduleUrl?: string;
+    scheduledTime?: string;
+    error?: string;
+  }> {
+    try {
+      // Parse preferred time or use current time + 1 day as default
+      let startTime: Date;
+      if (preferredTime) {
+        // Try to parse the preferred time
+        const parsedTime = new Date(preferredTime);
+        if (!isNaN(parsedTime.getTime())) {
+          startTime = parsedTime;
+        } else {
+          // If parsing fails, try to interpret it as a relative time
+          console.log(`[AppointmentScheduler] Could not parse preferred time: ${preferredTime}`);
+          // Default to tomorrow at 10 AM
+          startTime = new Date();
+          startTime.setDate(startTime.getDate() + 1);
+          startTime.setHours(10, 0, 0, 0);
+        }
+      } else {
+        // Default to tomorrow at 10 AM
+        startTime = new Date();
+        startTime.setDate(startTime.getDate() + 1);
+        startTime.setHours(10, 0, 0, 0);
+      }
+
+      // Prepare the request body
+      const requestBody = {
+        event_type: eventTypeUri,
+        start_time: startTime.toISOString(),
+        invitee: {
+          name: customerName,
+          email: customerEmail,
+          timezone: "America/New_York", // Default timezone, could be made configurable
+          ...(customerPhone && { text_reminder_number: customerPhone }),
+        },
+        ...(additionalNotes && {
+          questions_and_answers: [{
+            question: "Additional Notes",
+            answer: additionalNotes,
+            position: 0,
+          }],
+        }),
       };
+
+      // Call Calendly API to create the invitee
+      const response = await fetch("https://api.calendly.com/invitees", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const resource = data.resource;
+        
+        return {
+          success: true,
+          eventUri: resource.event,
+          rescheduleUrl: resource.reschedule_url,
+          scheduledTime: startTime.toISOString(),
+        };
+      } else if (response.status === 403) {
+        // Paid plan required
+        console.log("[AppointmentScheduler] Calendly API returned 403 - paid plan required");
+        return {
+          success: false,
+          error: "Paid plan required",
+        };
+      } else {
+        const errorText = await response.text();
+        console.error(`[AppointmentScheduler] Calendly API error: ${errorText}`);
+        return {
+          success: false,
+          error: errorText,
+        };
+      }
     } catch (error) {
-      console.error("Error scheduling appointment:", error);
-      throw error;
+      console.error("[AppointmentScheduler] Error creating event invitee:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      };
     }
   }
 
@@ -114,6 +275,7 @@ export class AppointmentScheduler {
     schedulingUrl,
     preferredTime,
     additionalNotes,
+    isConfirmed = false,
   }: {
     customerEmail: string;
     customerName: string;
@@ -121,6 +283,7 @@ export class AppointmentScheduler {
     schedulingUrl: string;
     preferredTime?: string;
     additionalNotes?: string;
+    isConfirmed?: boolean;
   }) {
     try {
       // Check if Microsoft auth is configured
@@ -130,44 +293,84 @@ export class AppointmentScheduler {
         return;
       }
 
-      const emailBody = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #333;">Appointment Scheduling Request</h2>
-          
-          <p>Dear ${customerName},</p>
-          
-          <p>Thank you for speaking with our AI assistant ${agentName}. Based on your conversation, we've prepared a scheduling link for you to book your appointment.</p>
-          
-          ${preferredTime ? `<p><strong>Your preferred time:</strong> ${preferredTime}</p>` : ''}
-          ${additionalNotes ? `<p><strong>Additional notes:</strong> ${additionalNotes}</p>` : ''}
-          
-          <div style="margin: 30px 0;">
-            <a href="${schedulingUrl}" style="background-color: #FF6F3C; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">
-              Schedule Your Appointment
-            </a>
+      let emailBody: string;
+      let subject: string;
+
+      if (isConfirmed) {
+        // Appointment is confirmed
+        const formattedTime = preferredTime ? new Date(preferredTime).toLocaleString() : "To be determined";
+        
+        subject = "Appointment Confirmed - SoVoice AI";
+        emailBody = `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #333;">Appointment Confirmed!</h2>
+            
+            <p>Dear ${customerName},</p>
+            
+            <p>Your appointment has been successfully scheduled with our AI assistant ${agentName}.</p>
+            
+            <div style="background-color: #f5f5f5; padding: 20px; border-radius: 5px; margin: 20px 0;">
+              <h3 style="color: #333; margin-top: 0;">Appointment Details:</h3>
+              <p><strong>Date & Time:</strong> ${formattedTime}</p>
+              ${additionalNotes ? `<p><strong>Notes:</strong> ${additionalNotes}</p>` : ''}
+            </div>
+            
+            <p>You will receive a calendar invitation with meeting details shortly.</p>
+            
+            <p>Need to make changes? You can reschedule or cancel using this link:</p>
+            <p style="word-break: break-all; color: #0066cc;">${schedulingUrl}</p>
+            
+            <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
+            
+            <p style="color: #666; font-size: 14px;">
+              Best regards,<br>
+              SoVoice AI Team<br>
+              info@sovoice.ai
+            </p>
           </div>
-          
-          <p>If the button doesn't work, you can copy and paste this link into your browser:</p>
-          <p style="word-break: break-all; color: #0066cc;">${schedulingUrl}</p>
-          
-          <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
-          
-          <p style="color: #666; font-size: 14px;">
-            Best regards,<br>
-            SoVoice AI Team<br>
-            info@sovoice.ai
-          </p>
-        </div>
-      `;
+        `;
+      } else {
+        // Appointment needs to be scheduled
+        subject = "Schedule Your Appointment - SoVoice AI";
+        emailBody = `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #333;">Appointment Scheduling Request</h2>
+            
+            <p>Dear ${customerName},</p>
+            
+            <p>Thank you for speaking with our AI assistant ${agentName}. Based on your conversation, we've prepared a scheduling link for you to book your appointment.</p>
+            
+            ${preferredTime ? `<p><strong>Your preferred time:</strong> ${preferredTime}</p>` : ''}
+            ${additionalNotes ? `<p><strong>Additional notes:</strong> ${additionalNotes}</p>` : ''}
+            
+            <div style="margin: 30px 0;">
+              <a href="${schedulingUrl}" style="background-color: #FF6F3C; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">
+                Schedule Your Appointment
+              </a>
+            </div>
+            
+            <p>If the button doesn't work, you can copy and paste this link into your browser:</p>
+            <p style="word-break: break-all; color: #0066cc;">${schedulingUrl}</p>
+            
+            <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
+            
+            <p style="color: #666; font-size: 14px;">
+              Best regards,<br>
+              SoVoice AI Team<br>
+              info@sovoice.ai
+            </p>
+          </div>
+        `;
+      }
 
       await this.msAuthService.sendEmail({
         to: [customerEmail],
-        subject: "Schedule Your Appointment - SoVoice AI",
+        subject,
         body: emailBody,
         isHtml: true,
       });
 
-      console.log(`Appointment email sent to ${customerEmail}`);
+      console.log(`Appointment email sent to ${customerEmail} (${isConfirmed ? 'confirmed' : 'scheduling link'})`);
     } catch (error) {
       console.error("Error sending appointment email:", error);
       // Don't throw error here, appointment link was still generated
