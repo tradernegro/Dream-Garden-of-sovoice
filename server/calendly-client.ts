@@ -357,6 +357,7 @@ export async function fetchCalendlyEventTypes(options: {
     // Process event types to extract useful information
     return (data.collection || []).map((eventType: any) => ({
       id: eventType.uri.split('/').pop(),
+      uri: eventType.uri, // Full URI for reference
       name: eventType.name,
       description: eventType.description_plain,
       duration_minutes: eventType.duration,
