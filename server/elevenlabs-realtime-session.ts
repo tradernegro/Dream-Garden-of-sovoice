@@ -224,6 +224,9 @@ export class ElevenLabsRealtimeSession {
         speaker: "user",
         text: transcript,
       });
+      
+      // Extract and update customer metadata
+      await this.extractAndUpdateCustomerMetadata(transcript);
 
       // Step 2: Generate AI response using GPT-4
       const aiResponse = await this.generateResponse();
@@ -266,6 +269,66 @@ export class ElevenLabsRealtimeSession {
     } catch (error) {
       console.error(`[ElevenLabs Session ${this.callId}] Transcription error:`, error);
       return "";
+    }
+  }
+
+  private async extractAndUpdateCustomerMetadata(transcript: string) {
+    try {
+      const call = await storage.getCall(this.callId);
+      if (!call) return;
+      
+      const currentMetadata = (call.metadata || {}) as any;
+      let updated = false;
+      
+      // Extract email pattern (common email formats)
+      const emailMatch = transcript.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/);
+      if (emailMatch && !currentMetadata.customerEmail) {
+        currentMetadata.customerEmail = emailMatch[0].toLowerCase();
+        updated = true;
+        console.log(`[ElevenLabs Session ${this.callId}] Extracted email: ${currentMetadata.customerEmail}`);
+      }
+      
+      // Extract name patterns (common German and English name introductions)
+      const namePatterns = [
+        /(?:mein name ist|ich heiße|ich bin|my name is|i am|i'm)\s+([A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+)?)/i,
+        /(?:hier spricht|this is)\s+([A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+)?)/i,
+      ];
+      
+      for (const pattern of namePatterns) {
+        const nameMatch = transcript.match(pattern);
+        if (nameMatch && nameMatch[1] && !currentMetadata.customerName) {
+          currentMetadata.customerName = nameMatch[1].trim();
+          updated = true;
+          console.log(`[ElevenLabs Session ${this.callId}] Extracted name: ${currentMetadata.customerName}`);
+          break;
+        }
+      }
+      
+      // Extract company patterns
+      const companyPatterns = [
+        /(?:von der firma|von|from company|from|at|bei)\s+([A-ZÄÖÜ][A-Za-zäöüß]+(?:\s+[A-ZÄÖÜ]?[A-Za-zäöüß]+)*(?:\s+(?:GmbH|AG|KG|UG|Inc|LLC|Ltd|Corporation|Corp))?)/i,
+        /(?:arbeite bei|work at|work for|employed at)\s+([A-ZÄÖÜ][A-Za-zäöüß]+(?:\s+[A-ZÄÖÜ]?[A-Za-zäöüß]+)*)/i,
+      ];
+      
+      for (const pattern of companyPatterns) {
+        const companyMatch = transcript.match(pattern);
+        if (companyMatch && companyMatch[1] && !currentMetadata.customerCompany) {
+          currentMetadata.customerCompany = companyMatch[1].trim();
+          updated = true;
+          console.log(`[ElevenLabs Session ${this.callId}] Extracted company: ${currentMetadata.customerCompany}`);
+          break;
+        }
+      }
+      
+      // Update call metadata if new information was extracted
+      if (updated) {
+        await storage.updateCall(this.callId, {
+          metadata: currentMetadata
+        });
+        console.log(`[ElevenLabs Session ${this.callId}] Updated call metadata with customer information`);
+      }
+    } catch (error) {
+      console.error(`[ElevenLabs Session ${this.callId}] Error extracting customer metadata:`, error);
     }
   }
 

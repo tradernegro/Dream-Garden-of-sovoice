@@ -18,7 +18,20 @@ export const calls = pgTable("calls", {
   transcript: text("transcript"),
   agentId: varchar("agent_id").references(() => agents.id),
   tags: text("tags").array(), // ["lead", "complaint", "follow-up", etc.]
-  metadata: jsonb("metadata"), // Additional call data
+  metadata: jsonb("metadata").$type<{
+    twilioSid?: string;
+    recordingSid?: string;
+    recordingUrl?: string;
+    customerName?: string;
+    customerEmail?: string;
+    customerCompany?: string;
+    customerPosition?: string;
+    customerIndustry?: string;
+    customerEmployeeCount?: string;
+    customerRevenue?: string;
+    customerChallenges?: string;
+    customerUrgency?: string;
+  }>(), // Additional call data
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

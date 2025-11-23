@@ -6,6 +6,12 @@ SoVoice AI is an AI-powered voice call assistant platform designed to automate c
 
 ## Recent Changes (November 2025)
 
+- **Automatic Customer Metadata Extraction**: Added intelligent extraction of customer information during calls
+  - Automatically extracts customer name, email, and company from conversation transcripts
+  - Supports both German and English language patterns for name and company extraction
+  - Real-time metadata updates during active calls for both OpenAI and ElevenLabs voice providers
+  - Customer information prominently displayed in Calls UI with badges and labels
+  - Metadata persisted in database for future reference and CRM integration
 - **Calendly Webhook Integration**: Implemented secure webhook handling with real-time event updates
   - Added HMAC signature verification using SHA-256 for webhook security
   - Implemented timestamp validation (5-minute tolerance) to prevent replay attacks

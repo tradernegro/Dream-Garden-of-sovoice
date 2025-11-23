@@ -831,10 +831,22 @@ export default function CallsManagement() {
                               <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-500 rounded-full animate-pulse" />
                             </div>
                             <div>
-                              <p className="font-semibold text-lg">{call.phoneNumber}</p>
+                              <div className="flex items-center gap-2">
+                                <p className="font-semibold text-lg">{call.phoneNumber}</p>
+                                {call.metadata?.customerName && (
+                                  <Badge className="bg-primary/10 text-primary border-0">
+                                    {call.metadata.customerName}
+                                  </Badge>
+                                )}
+                              </div>
                               <p className="text-sm text-muted-foreground">
                                 Agent: {call.agentId ? agents.find(a => a.id === call.agentId)?.name : "Nicht zugewiesen"}
                               </p>
+                              {call.metadata?.customerEmail && (
+                                <p className="text-sm text-muted-foreground">
+                                  E-Mail: {call.metadata.customerEmail}
+                                </p>
+                              )}
                               <div className="flex items-center gap-4 mt-1">
                                 <span className="text-sm">
                                   Dauer: {call.duration ? `${Math.floor(call.duration / 60)}:${(call.duration % 60).toString().padStart(2, '0')}` : "00:00"}
@@ -998,7 +1010,14 @@ export default function CallsManagement() {
                           )}
                         </div>
                         <div>
-                          <p className="font-medium">{call.phoneNumber}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium">{call.phoneNumber}</p>
+                            {call.metadata?.customerName && (
+                              <Badge variant="outline" className="text-xs">
+                                {call.metadata.customerName}
+                              </Badge>
+                            )}
+                          </div>
                           <div className="flex items-center gap-3 text-sm text-muted-foreground">
                             <span>{new Date(call.createdAt).toLocaleDateString()}</span>
                             <span>{new Date(call.createdAt).toLocaleTimeString()}</span>
@@ -1006,6 +1025,9 @@ export default function CallsManagement() {
                               <span>
                                 {Math.floor(call.duration / 60)}:{(call.duration % 60).toString().padStart(2, '0')}
                               </span>
+                            )}
+                            {call.metadata?.customerEmail && (
+                              <span className="text-muted-foreground">• {call.metadata.customerEmail}</span>
                             )}
                           </div>
                         </div>
