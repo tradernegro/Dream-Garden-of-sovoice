@@ -1083,6 +1083,143 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ==================== CALENDLY INTEGRATION ROUTES ====================
+  
+  // Get Calendly connection status
+  app.get("/api/calendly/status", async (req: Request, res: Response) => {
+    try {
+      const { getCalendlyStatus } = await import("./calendly-client");
+      const status = await getCalendlyStatus();
+      res.json(status);
+    } catch (error) {
+      console.error("[Calendly] Status error:", error);
+      res.status(500).json({ error: "Failed to get Calendly status" });
+    }
+  });
+
+  // Start Calendly OAuth flow
+  app.post("/api/calendly/connect", async (req: Request, res: Response) => {
+    try {
+      const { generateCalendlyAuthUrl } = await import("./calendly-client");
+      
+      // Get base URL for redirect
+      const baseUrl = process.env.REPLIT_DOMAINS 
+        ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
+        : 'http://localhost:5000';
+      
+      // Set redirect URI
+      process.env.CALENDLY_REDIRECT_URI = `${baseUrl}/api/calendly/callback`;
+      
+      const authUrl = generateCalendlyAuthUrl();
+      res.json({ authUrl });
+    } catch (error) {
+      console.error("[Calendly] Connect error:", error);
+      res.status(500).json({ error: "Failed to generate auth URL" });
+    }
+  });
+
+  // Handle OAuth callback
+  app.get("/api/calendly/callback", async (req: Request, res: Response) => {
+    try {
+      const { code } = req.query;
+      
+      if (!code) {
+        return res.status(400).send("Authorization code missing");
+      }
+      
+      const { exchangeCodeForTokens } = await import("./calendly-client");
+      await exchangeCodeForTokens(code as string);
+      
+      // Redirect to calendar page with success message
+      res.redirect("/calendar?connected=true");
+    } catch (error) {
+      console.error("[Calendly] Callback error:", error);
+      res.redirect("/calendar?error=connection_failed");
+    }
+  });
+
+  // Disconnect from Calendly
+  app.post("/api/calendly/disconnect", async (req: Request, res: Response) => {
+    try {
+      const { clearCalendlyCredentials } = await import("./calendly-client");
+      await clearCalendlyCredentials();
+      res.json({ success: true });
+    } catch (error) {
+      console.error("[Calendly] Disconnect error:", error);
+      res.status(500).json({ error: "Failed to disconnect from Calendly" });
+    }
+  });
+
+  // Get scheduled events
+  app.get("/api/calendly/events", async (req: Request, res: Response) => {
+    try {
+      const { fetchCalendlyEvents } = await import("./calendly-client");
+      
+      const options: any = {};
+      if (req.query.count) options.count = parseInt(req.query.count as string);
+      if (req.query.status) options.status = req.query.status as string;
+      if (req.query.min_start_time) options.min_start_time = req.query.min_start_time as string;
+      if (req.query.max_start_time) options.max_start_time = req.query.max_start_time as string;
+      
+      const events = await fetchCalendlyEvents(options);
+      
+      // Process events to simplify structure
+      const processedEvents = events.map((event: any) => ({
+        id: event.uri.split('/').pop(),
+        name: event.name,
+        start_time: event.start_time,
+        end_time: event.end_time,
+        event_type: event.event_type,
+        location: event.location,
+        invitees: event.invitees_counter?.total > 0 ? 
+          event.invitees?.map((inv: any) => ({
+            email: inv.email,
+            name: inv.name,
+            status: inv.status,
+          })) : [],
+        status: event.status,
+        meeting_notes: event.meeting_notes_plain,
+        uri: event.uri,
+      }));
+      
+      res.json(processedEvents);
+    } catch (error) {
+      console.error("[Calendly] Events error:", error);
+      res.status(500).json({ error: "Failed to fetch events" });
+    }
+  });
+
+  // Get event types
+  app.get("/api/calendly/event-types", async (req: Request, res: Response) => {
+    try {
+      const { fetchCalendlyEventTypes } = await import("./calendly-client");
+      
+      const options: any = {};
+      if (req.query.active !== undefined) options.active = req.query.active === 'true';
+      if (req.query.count) options.count = parseInt(req.query.count as string);
+      
+      const eventTypes = await fetchCalendlyEventTypes(options);
+      res.json(eventTypes);
+    } catch (error) {
+      console.error("[Calendly] Event types error:", error);
+      res.status(500).json({ error: "Failed to fetch event types" });
+    }
+  });
+
+  // Cancel an event
+  app.post("/api/calendly/events/:id/cancel", async (req: Request, res: Response) => {
+    try {
+      const { cancelCalendlyEvent } = await import("./calendly-client");
+      const { reason } = req.body;
+      
+      const result = await cancelCalendlyEvent(req.params.id, reason);
+      res.json(result);
+    } catch (error) {
+      console.error("[Calendly] Cancel event error:", error);
+      res.status(500).json({ error: "Failed to cancel event" });
+    }
+  });
+
   // ==================== SETTINGS ROUTES ====================
 
   // Get setting

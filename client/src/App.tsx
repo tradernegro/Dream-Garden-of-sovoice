@@ -20,12 +20,14 @@ import Projects from "@/pages/projects";
 import ProjectDetail from "@/pages/project-detail";
 import PhoneNumbers from "@/pages/phone-numbers";
 import EmailManagement from "@/pages/emails";
+import CalendarPage from "@/pages/calendar";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Dashboard} />
       <Route path="/chat" component={Chat} />
+      <Route path="/calendar" component={CalendarPage} />
       <Route path="/calls" component={CallsManagement} />
       <Route path="/calls/:id" component={CallDetail} />
       <Route path="/projects" component={Projects} />

@@ -11,7 +11,8 @@ import {
   PhoneCall,
   Folder,
   Smartphone,
-  Mail
+  Mail,
+  Calendar
 } from "lucide-react";
 import { 
   Sidebar, 
@@ -37,6 +38,11 @@ const navigationItems = [
     title: "Dashboard",
     icon: LayoutDashboard,
     href: "/",
+  },
+  {
+    title: "Calendar",
+    icon: Calendar,
+    href: "/calendar",
   },
   {
     title: "Phone Numbers",
