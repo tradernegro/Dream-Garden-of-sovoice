@@ -1101,16 +1101,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/calendly/connect", async (req: Request, res: Response) => {
     try {
       const { generateCalendlyAuthUrl } = await import("./calendly-client");
+      const { randomBytes } = await import("crypto");
       
       // Get base URL for redirect
       const baseUrl = process.env.REPLIT_DOMAINS 
         ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
         : 'http://localhost:5000';
       
-      // Set redirect URI
-      process.env.CALENDLY_REDIRECT_URI = `${baseUrl}/api/calendly/callback`;
+      // Generate redirect URI
+      const redirectUri = `${baseUrl}/api/calendly/callback`;
       
-      const authUrl = generateCalendlyAuthUrl();
+      // Generate state parameter for CSRF protection
+      const state = randomBytes(32).toString('hex');
+      
+      // Store state in settings for validation (expires in 10 minutes)
+      await storage.setSetting(`calendly_oauth_state_${state}`, {
+        state,
+        redirectUri,
+        expiresAt: Date.now() + (10 * 60 * 1000),
+      });
+      
+      const authUrl = generateCalendlyAuthUrl(state, redirectUri);
       res.json({ authUrl });
     } catch (error) {
       console.error("[Calendly] Connect error:", error);
@@ -1121,14 +1132,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Handle OAuth callback
   app.get("/api/calendly/callback", async (req: Request, res: Response) => {
     try {
-      const { code } = req.query;
+      const { code, state } = req.query;
       
       if (!code) {
         return res.status(400).send("Authorization code missing");
       }
       
+      if (!state) {
+        return res.status(400).send("State parameter missing - CSRF protection failed");
+      }
+      
+      // Validate state parameter
+      const storedStateData = await storage.getSetting(`calendly_oauth_state_${state}`);
+      
+      if (!storedStateData) {
+        return res.status(400).send("Invalid state parameter - CSRF protection failed");
+      }
+      
+      const stateValue = storedStateData.value as any;
+      
+      // Check if state has expired
+      if (Date.now() > stateValue.expiresAt) {
+        await storage.deleteSetting(`calendly_oauth_state_${state}`);
+        return res.status(400).send("OAuth state expired - please try again");
+      }
+      
+      // Extract redirect URI before cleanup
+      const redirectUri = stateValue.redirectUri;
+      
+      // Clean up used state
+      await storage.deleteSetting(`calendly_oauth_state_${state}`);
+      
       const { exchangeCodeForTokens } = await import("./calendly-client");
-      await exchangeCodeForTokens(code as string);
+      await exchangeCodeForTokens(code as string, redirectUri);
       
       // Redirect to calendar page with success message
       res.redirect("/calendar?connected=true");

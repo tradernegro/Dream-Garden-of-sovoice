@@ -88,19 +88,20 @@ export async function clearCalendlyCredentials(): Promise<void> {
   }
 }
 
-// Generate OAuth authorization URL
-export function generateCalendlyAuthUrl(): string {
+// Generate OAuth authorization URL with CSRF protection
+export function generateCalendlyAuthUrl(state: string, redirectUri: string): string {
   const params = new URLSearchParams({
     client_id: CLIENT_ID,
-    redirect_uri: REDIRECT_URI,
+    redirect_uri: redirectUri,
     response_type: "code",
+    state: state, // CSRF protection
   });
   
   return `${CALENDLY_AUTH_BASE}/oauth/authorize?${params.toString()}`;
 }
 
 // Exchange authorization code for tokens
-export async function exchangeCodeForTokens(code: string): Promise<CalendlyTokens> {
+export async function exchangeCodeForTokens(code: string, redirectUri: string): Promise<CalendlyTokens> {
   try {
     const response = await fetch(`${CALENDLY_AUTH_BASE}/oauth/token`, {
       method: "POST",
@@ -112,7 +113,7 @@ export async function exchangeCodeForTokens(code: string): Promise<CalendlyToken
         code,
         client_id: CLIENT_ID,
         client_secret: CLIENT_SECRET,
-        redirect_uri: REDIRECT_URI,
+        redirect_uri: redirectUri, // Use the dynamic redirect URI
       }),
     });
 

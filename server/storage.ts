@@ -63,6 +63,7 @@ export interface IStorage {
   // Settings methods
   getSetting(key: string): Promise<Setting | undefined>;
   setSetting(key: string, value: any): Promise<Setting>;
+  deleteSetting(key: string): Promise<boolean>;
   
   // Chat session methods
   getChatSessions(limit?: number): Promise<ChatSession[]>;
@@ -404,6 +405,18 @@ export class DbStorage implements IStorage {
     } catch (error) {
       console.error('[DbStorage] Error setting value:', error);
       throw error;
+    }
+  }
+  
+  async deleteSetting(key: string): Promise<boolean> {
+    try {
+      const result = await db.delete(settings)
+        .where(eq(settings.key, key))
+        .returning();
+      return result.length > 0;
+    } catch (error) {
+      console.error('[DbStorage] Error deleting setting:', error);
+      return false;
     }
   }
 
