@@ -51,6 +51,8 @@ export const agents = pgTable("agents", {
   isActive: integer("is_active").notNull().default(1), // 1 = active, 0 = inactive (boolean)
   isSystem: integer("is_system").notNull().default(0), // 1 = system agent (cannot be deleted), 0 = regular agent
   language: text("language").default("en"), // Language code
+  calendlyEnabled: integer("calendly_enabled").default(0), // 1 = enabled, 0 = disabled (boolean)
+  calendlyEventType: text("calendly_event_type"), // URL or ID of the Calendly event type to use
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
