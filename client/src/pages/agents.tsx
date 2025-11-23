@@ -2,7 +2,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Bot, Plus, Settings, Trash2, Volume2 } from "lucide-react";
+import { Bot, Plus, Settings, Trash2, Volume2, Calendar } from "lucide-react";
 import type { Agent } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -31,6 +31,8 @@ interface Voice {
 const agentFormSchema = insertAgentSchema.extend({
   name: z.string().min(1, "Name is required"),
   prompt: z.string().min(10, "Prompt must be at least 10 characters"),
+  calendlyEnabled: z.number().optional(),
+  calendlyEventType: z.string().optional(),
 });
 
 type AgentFormValues = z.infer<typeof agentFormSchema>;
@@ -48,6 +50,16 @@ export default function Agents() {
     queryKey: ["/api/voices"],
   });
 
+  const { data: calendlyEventTypes = [] } = useQuery<Array<{
+    uri: string;
+    name: string;
+    active: boolean;
+  }>>({
+    queryKey: ["/api/calendly/event-types"],
+    enabled: true,
+    retry: false,
+  });
+
   const form = useForm<AgentFormValues>({
     resolver: zodResolver(agentFormSchema),
     defaultValues: {
@@ -59,6 +71,8 @@ export default function Agents() {
       temperature: 10,
       isActive: 1,
       language: "en",
+      calendlyEnabled: 0,
+      calendlyEventType: "",
     },
   });
 
@@ -145,6 +159,8 @@ export default function Agents() {
       temperature: agent.temperature ?? 10,
       isActive: agent.isActive,
       language: agent.language ?? "en",
+      calendlyEnabled: agent.calendlyEnabled ?? 0,
+      calendlyEventType: agent.calendlyEventType ?? "",
     });
     setIsCreateDialogOpen(true);
   };
@@ -359,6 +375,69 @@ export default function Agents() {
                   )}
                 />
 
+                <FormField
+                  control={form.control}
+                  name="calendlyEnabled"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-md border p-4">
+                      <div className="space-y-0.5">
+                        <FormLabel>
+                          <Calendar className="h-4 w-4 inline-block mr-2" />
+                          Calendly Integration
+                        </FormLabel>
+                        <FormDescription>
+                          Allow this agent to schedule appointments via Calendly
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value === 1}
+                          onCheckedChange={(checked) => field.onChange(checked ? 1 : 0)}
+                          data-testid="switch-calendly-enabled"
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+
+                {form.watch("calendlyEnabled") === 1 && (
+                  <FormField
+                    control={form.control}
+                    name="calendlyEventType"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Calendly Event Type</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger data-testid="select-calendly-event-type">
+                              <SelectValue placeholder="Select an event type for appointments" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {calendlyEventTypes.length > 0 ? (
+                              calendlyEventTypes
+                                .filter(et => et.active)
+                                .map((eventType) => (
+                                  <SelectItem key={eventType.uri} value={eventType.uri}>
+                                    {eventType.name}
+                                  </SelectItem>
+                                ))
+                            ) : (
+                              <SelectItem value="none" disabled>
+                                No event types available - Connect Calendly first
+                              </SelectItem>
+                            )}
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>
+                          Choose which Calendly event type this agent can schedule
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+
                 <DialogFooter>
                   <Button 
                     type="button" 
@@ -431,6 +510,12 @@ export default function Agents() {
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Badge variant="outline" className="capitalize">{agent.voice}</Badge>
                   <Badge variant="outline" className="uppercase">{agent.language}</Badge>
+                  {agent.calendlyEnabled === 1 && (
+                    <Badge variant="secondary" className="bg-primary/10 text-primary">
+                      <Calendar className="h-3 w-3 mr-1" />
+                      Calendly
+                    </Badge>
+                  )}
                 </div>
                 <div className="flex gap-2">
                   <Button 
