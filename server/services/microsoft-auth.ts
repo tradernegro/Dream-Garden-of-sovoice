@@ -105,6 +105,36 @@ export class MicrosoftAuthService {
     }
   }
 
+  // Check if Microsoft Auth is configured
+  async isConfigured(): Promise<boolean> {
+    try {
+      // Check if we have a token in storage
+      if (!this.accessToken) {
+        await this.loadFromStorage();
+      }
+      
+      // Check if we have valid authentication
+      if (this.accessToken) {
+        // Verify token is not expired
+        if (this.tokenExpiry && this.tokenExpiry < new Date()) {
+          // Try to refresh the token
+          try {
+            await this.getAccessToken();
+            return true;
+          } catch {
+            return false;
+          }
+        }
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error("Error checking Microsoft Auth configuration:", error);
+      return false;
+    }
+  }
+
   // Exchange authorization code for access token
   async acquireTokenByCode(code: string, redirectUri: string): Promise<{ accessToken: string; userEmail: string }> {
     const tokenRequest = {

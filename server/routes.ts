@@ -1312,6 +1312,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             payload: event.payload,
             receivedAt: new Date().toISOString()
           });
+          
+          // Send confirmation email
+          try {
+            const { AppointmentScheduler } = await import("./services/appointment-scheduler");
+            const scheduler = new AppointmentScheduler();
+            await scheduler.handleAppointmentScheduled(event);
+          } catch (emailError) {
+            console.error("[Calendly Webhook] Failed to send confirmation email:", emailError);
+          }
+          
           broadcast({ 
             type: 'calendly_event',
             data: {
@@ -1328,6 +1338,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             payload: event.payload,
             receivedAt: new Date().toISOString()
           });
+          
+          // Send cancellation email
+          try {
+            const { AppointmentScheduler } = await import("./services/appointment-scheduler");
+            const scheduler = new AppointmentScheduler();
+            await scheduler.handleAppointmentCancelled(event);
+          } catch (emailError) {
+            console.error("[Calendly Webhook] Failed to send cancellation email:", emailError);
+          }
+          
           broadcast({ 
             type: 'calendly_event',
             data: {
@@ -2318,6 +2338,37 @@ AGENT_CREATE:
     } catch (error) {
       console.error("Failed to delete phone number:", error);
       res.status(500).json({ error: "Failed to delete phone number" });
+    }
+  });
+
+  // ==================== APPOINTMENT SCHEDULING ENDPOINTS ====================
+  
+  // Schedule appointment via agent
+  app.post("/api/agents/:agentId/schedule-appointment", async (req: Request, res: Response) => {
+    try {
+      const agentId = req.params.agentId;
+      const agent = await storage.getAgentById(agentId);
+      
+      if (!agent) {
+        return res.status(404).json({ error: "Agent not found" });
+      }
+      
+      const { AppointmentScheduler } = await import("./services/appointment-scheduler");
+      const scheduler = new AppointmentScheduler();
+      
+      const result = await scheduler.scheduleAppointment({
+        agent,
+        customerEmail: req.body.customerEmail,
+        customerName: req.body.customerName,
+        customerPhone: req.body.customerPhone,
+        preferredTime: req.body.preferredTime,
+        additionalNotes: req.body.additionalNotes,
+      });
+      
+      res.json(result);
+    } catch (error) {
+      console.error("Failed to schedule appointment:", error);
+      res.status(500).json({ error: error.message || "Failed to schedule appointment" });
     }
   });
 
