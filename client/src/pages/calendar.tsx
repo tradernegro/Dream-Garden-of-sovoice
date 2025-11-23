@@ -48,13 +48,13 @@ export default function CalendarPage() {
   const [selectedEvent, setSelectedEvent] = useState<CalendlyEvent | null>(null);
 
   // Fetch Calendly connection status
-  const { data: connectionStatus, isLoading: isLoadingStatus } = useQuery({
+  const { data: connectionStatus, isLoading: isLoadingStatus, refetch: refetchStatus } = useQuery({
     queryKey: ["/api/calendly/status"],
     queryFn: async () => {
       const response = await fetch("/api/calendly/status");
       return response.json();
     },
-    refetchInterval: 5000, // Poll every 5 seconds when connecting
+    refetchInterval: isConnecting ? 2000 : false, // Poll every 2 seconds when connecting, otherwise don't poll
   });
 
   // Fetch scheduled events
@@ -89,7 +89,40 @@ export default function CalendarPage() {
     onSuccess: (data) => {
       if (data.authUrl) {
         // Open OAuth URL in new window
-        window.open(data.authUrl, "calendly-oauth", "width=600,height=700");
+        const authWindow = window.open(data.authUrl, "calendly-oauth", "width=600,height=700");
+        
+        // Monitor the popup window
+        const checkInterval = setInterval(() => {
+          if (authWindow && authWindow.closed) {
+            clearInterval(checkInterval);
+            setIsConnecting(false);
+            // Refetch status after window closes
+            setTimeout(() => {
+              refetchStatus();
+            }, 1000);
+          }
+        }, 500);
+        
+        // Also check for URL params in case of redirect
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('connected') === 'true') {
+          setIsConnecting(false);
+          toast({
+            title: "Connected Successfully",
+            description: "Your Calendly account has been connected.",
+          });
+          // Clear the URL params
+          window.history.replaceState({}, '', window.location.pathname);
+        } else if (urlParams.get('error') === 'connection_failed') {
+          setIsConnecting(false);
+          toast({
+            title: "Connection Failed",
+            description: "Failed to connect to Calendly. Please try again.",
+            variant: "destructive",
+          });
+          // Clear the URL params
+          window.history.replaceState({}, '', window.location.pathname);
+        }
       }
     },
     onError: (error) => {
@@ -116,6 +149,30 @@ export default function CalendarPage() {
       });
     },
   });
+
+  // Check for OAuth callback on mount
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('connected') === 'true') {
+      toast({
+        title: "Connected Successfully",
+        description: "Your Calendly account has been connected.",
+      });
+      // Clear the URL params
+      window.history.replaceState({}, '', window.location.pathname);
+      setIsConnecting(false);
+      refetchStatus();
+    } else if (urlParams.get('error') === 'connection_failed') {
+      toast({
+        title: "Connection Failed",
+        description: "Failed to connect to Calendly. Please try again.",
+        variant: "destructive",
+      });
+      // Clear the URL params
+      window.history.replaceState({}, '', window.location.pathname);
+      setIsConnecting(false);
+    }
+  }, []);
 
   // Listen for real-time Calendly webhook events via WebSocket
   useEffect(() => {
@@ -227,6 +284,20 @@ export default function CalendarPage() {
                 <p className="text-sm text-muted-foreground">
                   Complete the authorization in the popup window...
                 </p>
+                <p className="text-xs text-muted-foreground">
+                  If the popup was blocked or closed, click below to try again
+                </p>
+                <Button 
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setIsConnecting(false);
+                    setTimeout(() => connectMutation.mutate(), 100);
+                  }}
+                  data-testid="button-retry-calendly"
+                >
+                  Retry Connection
+                </Button>
               </div>
             ) : (
               <Button 
