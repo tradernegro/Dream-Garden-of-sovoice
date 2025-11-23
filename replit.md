@@ -6,6 +6,17 @@ SoVoice AI is an AI-powered voice call assistant platform designed to automate c
 
 ## Recent Changes (November 2025)
 
+- **Calendly Webhook Integration**: Implemented secure webhook handling with real-time event updates
+  - Added HMAC signature verification using SHA-256 for webhook security
+  - Implemented timestamp validation (5-minute tolerance) to prevent replay attacks
+  - Real-time event notifications via WebSocket for scheduled/cancelled meetings
+  - Automatic event refresh when webhook events are received
+  - Webhook endpoint: POST /api/calendly/webhook
+- **Enhanced OAuth Security**: Strengthened Calendly OAuth implementation  
+  - Added CSRF protection with cryptographically secure state parameter
+  - Dynamic redirect URI generation based on Replit domains
+  - State token expiration (10 minutes) with automatic cleanup
+  - Single-use state tokens to prevent replay attacks
 - **Manual Token Configuration**: Implemented alternative authentication method for Microsoft Outlook
   - Added manual access token configuration dialog since OAuth is blocked in Replit environment
   - Users can now generate tokens from Microsoft Graph Explorer and input them directly

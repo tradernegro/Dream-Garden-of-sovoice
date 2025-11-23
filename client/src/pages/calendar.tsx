@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Calendar, Clock, Link2, Plus, RefreshCw, Calendar as CalendarIcon, Settings, CheckCircle2, XCircle } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -116,6 +116,58 @@ export default function CalendarPage() {
       });
     },
   });
+
+  // Listen for real-time Calendly webhook events via WebSocket
+  useEffect(() => {
+    const handleWebSocketMessage = (event: MessageEvent) => {
+      try {
+        const message = JSON.parse(event.data);
+        
+        if (message.type === 'calendly_event') {
+          const eventData = message.data;
+          
+          // Show toast notification based on event type
+          switch (eventData.type) {
+            case 'scheduled':
+              toast({
+                title: "📅 New Meeting Scheduled",
+                description: `${eventData.event.name || 'Someone'} has scheduled a meeting`,
+              });
+              break;
+            case 'cancelled':
+              toast({
+                title: "❌ Meeting Cancelled",
+                description: `A meeting has been cancelled`,
+                variant: "destructive"
+              });
+              break;
+            case 'no_show':
+              toast({
+                title: "👻 No-Show",
+                description: `Someone didn't show up for their meeting`,
+                variant: "destructive"
+              });
+              break;
+          }
+          
+          // Refresh events to show latest data
+          queryClient.invalidateQueries({ queryKey: ["/api/calendly/events"] });
+        }
+      } catch (error) {
+        console.error('Error handling WebSocket message:', error);
+      }
+    };
+
+    // Get WebSocket instance from window (if available)
+    const ws = (window as any).ws;
+    if (ws && ws.addEventListener) {
+      ws.addEventListener('message', handleWebSocketMessage);
+      
+      return () => {
+        ws.removeEventListener('message', handleWebSocketMessage);
+      };
+    }
+  }, [toast]);
 
   // Format date and time
   const formatDateTime = (dateString: string) => {

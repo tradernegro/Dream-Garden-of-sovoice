@@ -1186,6 +1186,127 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Calendly webhook endpoint
+  app.post("/api/calendly/webhook", async (req: Request, res: Response) => {
+    try {
+      const { createHmac } = await import("crypto");
+      
+      // Get the webhook signing key from environment
+      const signingKey = process.env.CALENDLY_WEBHOOK_SIGNING_KEY;
+      if (!signingKey) {
+        console.error("[Calendly Webhook] No signing key configured");
+        return res.status(500).json({ error: "Webhook not configured" });
+      }
+
+      // Get the signature from headers
+      const signature = req.headers['calendly-webhook-signature'] as string;
+      if (!signature) {
+        console.error("[Calendly Webhook] No signature in headers");
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      // Parse the signature header
+      const signatureParts = signature.split(',').reduce((acc, part) => {
+        const [key, value] = part.split('=');
+        acc[key] = value;
+        return acc;
+      }, {} as Record<string, string>);
+
+      const timestamp = signatureParts['t'];
+      const providedSignature = signatureParts['v1'];
+
+      if (!timestamp || !providedSignature) {
+        console.error("[Calendly Webhook] Invalid signature format");
+        return res.status(401).json({ error: "Invalid signature" });
+      }
+
+      // Verify timestamp to prevent replay attacks (5 minute tolerance)
+      const currentTime = Math.floor(Date.now() / 1000);
+      const signatureTime = parseInt(timestamp);
+      if (Math.abs(currentTime - signatureTime) > 300) {
+        console.error("[Calendly Webhook] Timestamp out of range");
+        return res.status(401).json({ error: "Request timestamp too old" });
+      }
+
+      // Compute expected signature
+      const payload = timestamp + '.' + JSON.stringify(req.body);
+      const expectedSignature = createHmac('sha256', signingKey)
+        .update(payload)
+        .digest('hex');
+
+      // Verify signature
+      if (expectedSignature !== providedSignature) {
+        console.error("[Calendly Webhook] Signature verification failed");
+        return res.status(401).json({ error: "Invalid signature" });
+      }
+
+      // Process webhook event
+      const event = req.body;
+      console.log("[Calendly Webhook] Received event:", event.event);
+
+      // Handle different event types
+      switch (event.event) {
+        case 'invitee.created':
+          console.log("[Calendly Webhook] New meeting scheduled:", event.payload);
+          // Store or update meeting information
+          await storage.setSetting(`calendly_event_${event.payload.event}`, {
+            type: 'scheduled',
+            payload: event.payload,
+            receivedAt: new Date().toISOString()
+          });
+          broadcast({ 
+            type: 'calendly_event',
+            data: {
+              type: 'scheduled',
+              event: event.payload
+            }
+          });
+          break;
+
+        case 'invitee.canceled':
+          console.log("[Calendly Webhook] Meeting cancelled:", event.payload);
+          await storage.setSetting(`calendly_event_${event.payload.event}`, {
+            type: 'cancelled',
+            payload: event.payload,
+            receivedAt: new Date().toISOString()
+          });
+          broadcast({ 
+            type: 'calendly_event',
+            data: {
+              type: 'cancelled',
+              event: event.payload
+            }
+          });
+          break;
+
+        case 'invitee_no_show.created':
+          console.log("[Calendly Webhook] No-show:", event.payload);
+          await storage.setSetting(`calendly_event_${event.payload.event}`, {
+            type: 'no_show',
+            payload: event.payload,
+            receivedAt: new Date().toISOString()
+          });
+          broadcast({ 
+            type: 'calendly_event',
+            data: {
+              type: 'no_show',
+              event: event.payload
+            }
+          });
+          break;
+
+        default:
+          console.log("[Calendly Webhook] Unhandled event type:", event.event);
+      }
+
+      // Respond with 200 OK
+      res.status(200).json({ received: true });
+    } catch (error) {
+      console.error("[Calendly Webhook] Processing error:", error);
+      res.status(500).json({ error: "Webhook processing failed" });
+    }
+  });
+
   // Get scheduled events
   app.get("/api/calendly/events", async (req: Request, res: Response) => {
     try {
