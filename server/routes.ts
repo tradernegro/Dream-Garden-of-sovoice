@@ -2347,7 +2347,7 @@ AGENT_CREATE:
   app.post("/api/agents/:agentId/schedule-appointment", async (req: Request, res: Response) => {
     try {
       const agentId = req.params.agentId;
-      const agent = await storage.getAgentById(agentId);
+      const agent = await storage.getAgent(agentId);
       
       if (!agent) {
         return res.status(404).json({ error: "Agent not found" });

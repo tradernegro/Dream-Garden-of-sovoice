@@ -192,7 +192,7 @@ async function refreshAccessToken(refreshToken: string): Promise<CalendlyTokens>
 }
 
 // Get valid access token (refresh if needed)
-async function getValidAccessToken(): Promise<string | null> {
+export async function getValidAccessToken(): Promise<string | null> {
   const tokens = await getStoredTokens();
   
   if (!tokens) {
