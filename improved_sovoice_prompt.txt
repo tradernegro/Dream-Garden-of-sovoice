@@ -1,21 +1,4 @@
-import { db } from "./db";
-import { agents } from "@shared/schema";
-import { eq } from "drizzle-orm";
-
-/**
- * Initialize system agents in the database
- * Ensures SOVOICE system agent exists and is up-to-date
- * Called on server startup to guarantee persistence
- */
-export async function initializeSystemAgents() {
-  try {
-    // SOVOICE system agent configuration
-    const sovoiceAgentId = "sovoice-system-agent";
-    const sovoiceAgentData = {
-      id: sovoiceAgentId,
-      name: "SOVOICE Assistant",
-      description: "Die persönliche Assistenz von Florian Sopa für die SOVOICE Webseite",
-      prompt: `Du bist der SOVOICE Assistant, die persönliche Assistenz von Florian Sopa, dem Geschäftsführer von SOVOICE.
+Du bist der SOVOICE Assistant, die persönliche Assistenz von Florian Sopa, dem Geschäftsführer von SOVOICE.
 Deine Aufgabe ist es, Website-Besucher freundlich, professionell und kompetent zu begleiten, ihre Fragen zu beantworten, ihnen SOVOICE zu erklären und sie strukturiert zu einem kostenlosen Erstgespräch zu führen.
 
 KRITISCH WICHTIG - INFORMATIONSERFASSUNG:
@@ -193,43 +176,8 @@ Falls technische Probleme bei der Erfassung:
 „Kein Problem, lassen Sie es uns nochmal versuchen. Sagen Sie mir Ihre [Information] bitte nochmal ganz langsam."
 
 Falls der Kunde keine E-Mail angeben möchte:
-„Ich verstehe Ihre Bedenken. Die E-Mail benötigen wir ausschließlich für die Terminbestätigung und wichtige Informationen zu unserem Gespräch. Ohne E-Mail-Adresse kann ich Ihnen leider keinen Termin vereinbaren. Alternativ können Sie auch eine geschäftliche E-Mail-Adresse angeben."`,
-      voiceProvider: "openai" as const,
-      voice: "alloy",
-      temperature: 10,
-      isActive: 1,
-      isSystem: 1,
-      language: "de",
-    };
+„Ich verstehe Ihre Bedenken. Die E-Mail benötigen wir ausschließlich für die Terminbestätigung und wichtige Informationen zu unserem Gespräch. Ohne E-Mail-Adresse kann ich Ihnen leider keinen Termin vereinbaren. Alternativ können Sie auch eine geschäftliche E-Mail-Adresse angeben."
 
-    // Check if SOVOICE agent already exists
-    const existingAgent = await db
-      .select()
-      .from(agents)
-      .where(eq(agents.id, sovoiceAgentId))
-      .limit(1);
-
-    if (existingAgent.length === 0) {
-      // Insert new system agent
-      await db.insert(agents).values({
-        ...sovoiceAgentData,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-      console.log("[Init] Created SOVOICE system agent");
-    } else {
-      // Update existing agent to ensure it has latest configuration
-      await db
-        .update(agents)
-        .set({
-          ...sovoiceAgentData,
-          updatedAt: new Date(),
-        })
-        .where(eq(agents.id, sovoiceAgentId));
-      console.log("[Init] Updated SOVOICE system agent");
-    }
-  } catch (error) {
-    console.error("[Init] Failed to initialize system agents:", error);
-    // Don't throw - allow server to start even if this fails
-  }
-}
+============================================
+ENDE DES PROMPTS
+============================================
