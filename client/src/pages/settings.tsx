@@ -38,7 +38,11 @@ export default function Settings() {
   });
 
   // Fetch Microsoft Outlook status
-  const { data: outlookStatus } = useQuery({
+  const { data: outlookStatus } = useQuery<{
+    connected: boolean;
+    email: string | null;
+    tokenAcquired: string | null;
+  }>({
     queryKey: ["/api/microsoft/status"],
     refetchInterval: 30000, // Check every 30 seconds
   });
