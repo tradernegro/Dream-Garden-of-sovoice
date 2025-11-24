@@ -177,7 +177,41 @@ export default function Settings() {
         description: "Bitte erlauben Sie Popups für diese Website und versuchen Sie es erneut.",
         variant: "destructive",
       });
+      return;
     }
+    
+    // Set a timeout for the OAuth flow (5 minutes)
+    const timeoutId = setTimeout(() => {
+      setConnectingOutlook(false);
+      toast({
+        title: "Zeitüberschreitung",
+        description: "Die Anmeldung hat zu lange gedauert. Bitte versuchen Sie es erneut.",
+        variant: "destructive",
+      });
+    }, 5 * 60 * 1000);
+    
+    // Monitor popup closure
+    const checkPopupClosed = setInterval(() => {
+      if (popup.closed) {
+        clearInterval(checkPopupClosed);
+        clearTimeout(timeoutId);
+        
+        // If popup closed without sending message, assume user cancelled
+        setTimeout(() => {
+          // Give time for message to be received if successful
+          if (connectingOutlook) {
+            setConnectingOutlook(false);
+            toast({
+              title: "Anmeldung abgebrochen",
+              description: "Die Outlook-Anmeldung wurde abgebrochen.",
+            });
+          }
+        }, 500);
+      }
+    }, 1000);
+    
+    // Clean up on successful connection (handled in useEffect)
+    // The useEffect will clear connectingOutlook when message is received
   };
 
   return (
