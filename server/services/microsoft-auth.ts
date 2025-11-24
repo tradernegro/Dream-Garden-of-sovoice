@@ -358,19 +358,29 @@ export class MicrosoftAuthService {
       }
     }
     
-    // If all refresh attempts fail, try application auth as fallback
-    if (process.env.MICROSOFT_CLIENT_ID && process.env.MICROSOFT_CLIENT_SECRET && process.env.MICROSOFT_TENANT_ID) {
-      try {
-        console.log("Attempting application auth as fallback...");
-        const token = await this.acquireTokenByClientCredentials("info@sovoice.ai");
-        console.log("Successfully acquired token using application auth fallback");
-        return token;
-      } catch (error) {
-        console.error("Failed application auth fallback:", error);
+    // For delegated auth, we should NOT fall back to application auth
+    // as this would change the authenticated context without user consent
+    if (this.authType === "delegated") {
+      console.error("Delegated auth token refresh failed. User needs to re-authenticate.");
+      throw new Error("Session expired. Please reconnect your Microsoft account.");
+    }
+    
+    // Only use application auth fallback if we were already using application auth
+    // or if no auth type is set (initial setup)
+    if (!this.authType || this.authType === "application") {
+      if (process.env.MICROSOFT_CLIENT_ID && process.env.MICROSOFT_CLIENT_SECRET && process.env.MICROSOFT_TENANT_ID) {
+        try {
+          console.log("Attempting application auth...");
+          const token = await this.acquireTokenByClientCredentials("info@sovoice.ai");
+          console.log("Successfully acquired token using application auth");
+          return token;
+        } catch (error) {
+          console.error("Failed application auth:", error);
+        }
       }
     }
 
-    throw new Error("No valid access token available. User needs to re-authenticate.");
+    throw new Error("No valid access token available. Please authenticate.");
   }
 
   // Create Microsoft Graph client
