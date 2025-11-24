@@ -200,6 +200,8 @@ Falls der Kunde keine E-Mail angeben möchte:
       isActive: 1,
       isSystem: 1,
       language: "de",
+      calendlyEnabled: 1,
+      calendlyEventType: "30min", // Default event type for appointments
     };
 
     // Check if SOVOICE agent already exists

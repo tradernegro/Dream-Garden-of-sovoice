@@ -6,6 +6,13 @@ SoVoice AI is an AI-powered voice call assistant platform designed to automate c
 
 ## Recent Changes (November 2025)
 
+- **Automatic Calendly Appointment Scheduling**: Implemented automatic appointment creation during calls
+  - Automatically schedules Calendly appointments when customer name and email are collected
+  - Flexible event type matching supports URI, ID, or name-based lookup (e.g., "30min" matches "30 Minute Meeting")
+  - Falls back to first available event type if exact match not found
+  - Sends confirmation emails via Microsoft Outlook integration
+  - Updates call metadata with appointment details and status
+  - Works with both OpenAI Realtime and ElevenLabs voice providers
 - **Automatic Customer Metadata Extraction**: Added intelligent extraction of customer information during calls
   - Automatically extracts customer name, email, and company from conversation transcripts
   - Supports both German and English language patterns for name and company extraction

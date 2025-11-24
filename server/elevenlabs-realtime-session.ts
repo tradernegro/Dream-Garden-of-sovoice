@@ -7,6 +7,7 @@ import alawmulaw from "alawmulaw";
 import wavefile from "wavefile";
 import ffmpeg from "fluent-ffmpeg";
 import { Readable } from "stream";
+import { AppointmentScheduler } from "./services/appointment-scheduler";
 
 const { WaveFile } = wavefile;
 
@@ -326,6 +327,9 @@ export class ElevenLabsRealtimeSession {
           metadata: currentMetadata
         });
         console.log(`[ElevenLabs Session ${this.callId}] Updated call metadata with customer information`);
+        
+        // Try to schedule appointment if we have enough data
+        await this.tryScheduleAppointment();
       }
     } catch (error) {
       console.error(`[ElevenLabs Session ${this.callId}] Error extracting customer metadata:`, error);
@@ -506,6 +510,92 @@ export class ElevenLabsRealtimeSession {
     };
 
     this.twilioWs.send(JSON.stringify(mediaMessage));
+  }
+
+  // Automatically schedule appointment when sufficient data is collected
+  private async tryScheduleAppointment() {
+    try {
+      // Check if we have collected enough customer data
+      const call = await storage.getCall(this.callId);
+      if (!call) return;
+      
+      const metadata = (call.metadata || {}) as any;
+      const customerName = metadata.customerName;
+      const customerEmail = metadata.customerEmail;
+      const customerPhone = metadata.customerPhone;
+      const company = metadata.customerCompany;
+      
+      // Only proceed if we have at least name and email
+      if (!customerName || !customerEmail) {
+        return; // Not enough data yet
+      }
+      
+      // Check if we already scheduled an appointment for this call
+      if (metadata.appointmentScheduled) {
+        return; // Already scheduled
+      }
+      
+      // Get the agent for this call
+      if (!this.agentId) {
+        return; // No agent associated
+      }
+      
+      const agent = await storage.getAgent(this.agentId);
+      if (!agent) {
+        return;
+      }
+      
+      // Check if agent is the SOVOICE system agent
+      if (agent.id === "sovoice-system-agent") {
+        console.log(`[ElevenLabs Session ${this.callId}] Attempting to schedule Calendly appointment for ${customerName} (${customerEmail})`);
+        
+        // Create appointment scheduler
+        const appointmentScheduler = new AppointmentScheduler();
+        
+        // Build additional notes from collected data
+        const additionalNotes = [
+          company ? `Firma: ${company}` : null,
+          customerPhone ? `Telefon: ${customerPhone}` : null,
+          `Anruf-ID: ${this.callId}`,
+          `Automatisch erstellt während Telefonat`,
+        ].filter(Boolean).join('\n');
+        
+        try {
+          // Try to schedule appointment
+          const result = await appointmentScheduler.scheduleAppointment({
+            agent,
+            customerEmail,
+            customerName,
+            customerPhone,
+            additionalNotes,
+            preferredTime: undefined, // Use default (tomorrow 10 AM)
+          });
+          
+          if (result.success) {
+            console.log(`[ElevenLabs Session ${this.callId}] Appointment scheduled successfully:`, result);
+            
+            // Mark appointment as scheduled in metadata
+            await storage.updateCall(this.callId, {
+              metadata: {
+                ...metadata,
+                appointmentScheduled: true,
+                appointmentDetails: result,
+              },
+            });
+            
+            // Note: We can't directly inform the AI about the appointment status
+            // The assistant will continue with its normal conversation flow
+          } else {
+            console.log(`[ElevenLabs Session ${this.callId}] Could not schedule appointment:`, result.message);
+          }
+        } catch (error) {
+          console.error(`[ElevenLabs Session ${this.callId}] Error scheduling appointment:`, error);
+          // Don't expose technical errors to customer
+        }
+      }
+    } catch (error) {
+      console.error(`[ElevenLabs Session ${this.callId}] Error in tryScheduleAppointment:`, error);
+    }
   }
 
   private cleanup() {

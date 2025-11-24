@@ -1,5 +1,6 @@
 import WebSocket from "ws";
 import { storage } from "./storage";
+import { AppointmentScheduler } from "./services/appointment-scheduler";
 
 export interface RealtimeSessionConfig {
   callId: string;
@@ -377,6 +378,9 @@ export class OpenAIRealtimeSession {
           metadata: currentMetadata
         });
         console.log(`[Session ${this.callId}] Updated call metadata with customer information`);
+        
+        // Try to schedule appointment if we have enough data
+        await this.tryScheduleAppointment();
       }
     } catch (error) {
       console.error(`[Session ${this.callId}] Error extracting customer metadata:`, error);
@@ -392,6 +396,92 @@ export class OpenAIRealtimeSession {
   private sendToTwilio(message: any) {
     if (this.twilioWs && this.twilioWs.readyState === WebSocket.OPEN) {
       this.twilioWs.send(JSON.stringify(message));
+    }
+  }
+
+  // Automatically schedule appointment when sufficient data is collected
+  private async tryScheduleAppointment() {
+    try {
+      // Check if we have collected enough customer data
+      const call = await storage.getCall(this.callId);
+      if (!call) return;
+      
+      const metadata = (call.metadata || {}) as any;
+      const customerName = metadata.customerName;
+      const customerEmail = metadata.customerEmail;
+      const customerPhone = metadata.customerPhone;
+      const company = metadata.customerCompany;
+      
+      // Only proceed if we have at least name and email
+      if (!customerName || !customerEmail) {
+        return; // Not enough data yet
+      }
+      
+      // Check if we already scheduled an appointment for this call
+      if (metadata.appointmentScheduled) {
+        return; // Already scheduled
+      }
+      
+      // Get the agent for this call
+      if (!this.agentId) {
+        return; // No agent associated
+      }
+      
+      const agent = await storage.getAgent(this.agentId);
+      if (!agent) {
+        return;
+      }
+      
+      // Check if agent is the SOVOICE system agent
+      if (agent.id === "sovoice-system-agent") {
+        console.log(`[Session ${this.callId}] Attempting to schedule Calendly appointment for ${customerName} (${customerEmail})`);
+        
+        // Create appointment scheduler
+        const appointmentScheduler = new AppointmentScheduler();
+        
+        // Build additional notes from collected data
+        const additionalNotes = [
+          company ? `Firma: ${company}` : null,
+          customerPhone ? `Telefon: ${customerPhone}` : null,
+          `Anruf-ID: ${this.callId}`,
+          `Automatisch erstellt während Telefonat`,
+        ].filter(Boolean).join('\n');
+        
+        try {
+          // Try to schedule appointment
+          const result = await appointmentScheduler.scheduleAppointment({
+            agent,
+            customerEmail,
+            customerName,
+            customerPhone,
+            additionalNotes,
+            preferredTime: undefined, // Use default (tomorrow 10 AM)
+          });
+          
+          if (result.success) {
+            console.log(`[Session ${this.callId}] Appointment scheduled successfully:`, result);
+            
+            // Mark appointment as scheduled in metadata
+            await storage.updateCall(this.callId, {
+              metadata: {
+                ...metadata,
+                appointmentScheduled: true,
+                appointmentDetails: result,
+              },
+            });
+            
+            // Note: We can't send system messages directly to affect the conversation
+            // The assistant will continue with its normal flow
+          } else {
+            console.log(`[Session ${this.callId}] Could not schedule appointment:`, result.message);
+          }
+        } catch (error) {
+          console.error(`[Session ${this.callId}] Error scheduling appointment:`, error);
+          // Don't expose technical errors to customer
+        }
+      }
+    } catch (error) {
+      console.error(`[Session ${this.callId}] Error in tryScheduleAppointment:`, error);
     }
   }
 

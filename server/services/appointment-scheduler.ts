@@ -44,15 +44,50 @@ export class AppointmentScheduler {
 
       // Get the event type details
       const eventTypes = await fetchCalendlyEventTypes({ count: 100 });
-      const eventType = eventTypes.find((et: any) => et.uri === agent.calendlyEventType);
+      const agentEventType = agent.calendlyEventType; // We already checked it's not null above
       
-      if (!eventType) {
-        throw new Error("Calendly event type not found");
+      // Normalize the search string for flexible matching
+      const normalizedSearch = agentEventType.toLowerCase()
+        .replace(/\s+/g, '') // Remove spaces
+        .replace(/minute(s)?/g, 'min') // Normalize "minute" to "min"
+        .replace(/hour(s)?/g, 'hr'); // Normalize "hour" to "hr"
+      
+      // Try to match by URI, ID, or name with flexible matching
+      const eventType = eventTypes.find((et: any) => {
+        // Direct matches
+        if (et.uri === agentEventType || et.id === agentEventType) {
+          return true;
+        }
+        
+        // Flexible name matching
+        const normalizedName = et.name.toLowerCase()
+          .replace(/\s+/g, '')
+          .replace(/minute(s)?/g, 'min')
+          .replace(/hour(s)?/g, 'hr');
+        
+        // Check if normalized strings match or contain each other
+        return normalizedName === normalizedSearch || 
+               normalizedName.includes(normalizedSearch) ||
+               normalizedSearch.includes(normalizedName);
+      });
+      
+      // If still not found, try to find the first available event type as fallback
+      const fallbackEventType = !eventType && eventTypes.length > 0 ? eventTypes[0] : eventType;
+      
+      if (!fallbackEventType) {
+        console.error(`[AppointmentScheduler] Could not find event type matching: ${agent.calendlyEventType}`);
+        console.error(`[AppointmentScheduler] Available event types:`, eventTypes.map((et: any) => ({ id: et.id, name: et.name, uri: et.uri })));
+        throw new Error("No Calendly event types available. Please configure at least one event type in Calendly.");
+      }
+      
+      const eventTypeToUse = eventType || fallbackEventType;
+      if (!eventType && fallbackEventType) {
+        console.log(`[AppointmentScheduler] Using fallback event type: ${fallbackEventType.name}`);
       }
 
       // Try to book appointment directly via API (requires paid plan)
       const appointmentResult = await this.createEventInvitee({
-        eventTypeUri: agent.calendlyEventType,
+        eventTypeUri: eventTypeToUse.uri,
         customerEmail,
         customerName,
         customerPhone,
@@ -70,7 +105,7 @@ export class AppointmentScheduler {
           customerEmail,
           customerName,
           agentName: agent.name,
-          schedulingUrl: appointmentResult.rescheduleUrl,
+          schedulingUrl: appointmentResult.rescheduleUrl || "",
           preferredTime: appointmentResult.scheduledTime,
           additionalNotes,
           isConfirmed: true,
@@ -86,7 +121,7 @@ export class AppointmentScheduler {
         // Fallback: Generate a pre-filled scheduling link (for free plans)
         console.log(`[AppointmentScheduler] Direct booking failed, falling back to scheduling link`);
         
-        const schedulingUrl = eventType.scheduling_url;
+        const schedulingUrl = eventTypeToUse.scheduling_url;
         const inviteeData = {
           email: customerEmail,
           name: customerName,
