@@ -153,131 +153,34 @@ export default function EmailManagement() {
     }
   }, []);
 
+  // Microsoft OAuth functionality temporarily disabled - being replaced
   const checkConnectionStatus = async () => {
-    try {
-      const response = await fetch("/api/microsoft/status");
-      if (response.ok) {
-        const status = await response.json();
-        setConnectionStatus(status);
-      }
-    } catch (error) {
-      console.error("Failed to check connection status:", error);
-    }
+    // Temporarily disabled - Microsoft OAuth being replaced
+    console.log("Microsoft OAuth temporarily disabled");
   };
 
   const connectToMicrosoft = async () => {
-    setIsConnecting(true);
-    try {
-      const response = await fetch("/api/microsoft/auth-url");
-      if (response.ok) {
-        const { authUrl } = await response.json();
-        // Open in new window to avoid Replit iframe issues
-        const authWindow = window.open(authUrl, '_blank', 'width=600,height=700');
-        
-        // Check if popup was blocked
-        if (!authWindow || authWindow.closed || typeof authWindow.closed === 'undefined') {
-          // Fallback: show URL to user to copy
-          toast({
-            title: "Popup blockiert",
-            description: "Bitte kopieren Sie diese URL und öffnen Sie sie in einem neuen Tab",
-          });
-          
-          // Show URL in a dialog or prompt
-          const userConfirm = window.confirm(
-            "OAuth Popup wurde blockiert.\n\n" +
-            "Klicken Sie OK, um die URL in einem neuen Tab zu öffnen, oder\n" +
-            "Kopieren Sie diese URL manuell:\n\n" +
-            authUrl.substring(0, 100) + "..."
-          );
-          
-          if (userConfirm) {
-            window.open(authUrl, '_blank');
-          }
-        }
-        
-        setIsConnecting(false);
-      } else {
-        throw new Error("Failed to get authorization URL");
-      }
-    } catch (error) {
-      console.error("Failed to connect:", error);
-      toast({
-        title: "Connection Error",
-        description: "Failed to initiate Microsoft connection. Please try again.",
-        variant: "destructive",
-      });
-      setIsConnecting(false);
-    }
+    // Microsoft OAuth temporarily disabled - being replaced with direct integration
+    toast({
+      title: "Coming Soon",
+      description: "Microsoft Outlook integration is being upgraded. Please check back soon.",
+    });
   };
 
   const submitManualToken = async () => {
-    if (!manualTokenData.accessToken || !manualTokenData.userEmail) {
-      toast({
-        title: "Missing Information",
-        description: "Please provide both access token and email address",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsConnecting(true);
-    try {
-      const response = await apiRequest("POST", "/api/microsoft/manual-token", manualTokenData);
-      const result = await response.json();
-      
-      if (result.success) {
-        setConnectionStatus({
-          connected: true,
-          email: manualTokenData.userEmail,
-          tokenAcquired: new Date().toISOString()
-        });
-        setIsManualTokenOpen(false);
-        setManualTokenData({ accessToken: "", userEmail: "" });
-        
-        toast({
-          title: "Connected Successfully",
-          description: `Connected to ${manualTokenData.userEmail}`,
-        });
-        
-        // Sync emails after connection
-        await syncEmails();
-      } else {
-        throw new Error(result.error || "Failed to save token");
-      }
-    } catch (error) {
-      console.error("Failed to save manual token:", error);
-      toast({
-        title: "Connection Failed",
-        description: "Failed to configure access token. Please check your token and try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsConnecting(false);
-    }
+    // Microsoft OAuth temporarily disabled - being replaced with direct integration
+    toast({
+      title: "Coming Soon",
+      description: "Microsoft Outlook integration is being upgraded. Please check back soon.",
+    });
   };
 
   const syncEmails = async () => {
-    try {
-      const response = await apiRequest("POST", "/api/microsoft/sync", {
-        folder: selectedFolder,
-        limit: 100
-      });
-      const result = await response.json();
-      
-      toast({
-        title: "Sync Complete",
-        description: `Synced ${result.syncedCount} new emails from Outlook`,
-      });
-      
-      refetch();
-    } catch (error) {
-      console.error("Failed to sync emails:", error);
-      toast({
-        title: "Sync Failed",
-        description: "Failed to sync emails from Outlook",
-        variant: "destructive",
-      });
-    }
+    // Microsoft OAuth temporarily disabled - being replaced with direct integration
+    toast({
+      title: "Coming Soon",
+      description: "Microsoft Outlook sync is being upgraded. Please check back soon.",
+    });
   };
 
   // Fetch emails
@@ -456,38 +359,12 @@ export default function EmailManagement() {
       bcc: composeData.bcc ? composeData.bcc.split(",").map(e => e.trim()) : [],
     };
 
-    // If connected to Microsoft, send via Outlook
-    if (connectionStatus.connected) {
-      try {
-        const response = await apiRequest("POST", "/api/microsoft/send", {
-          ...emailData,
-          isHtml: false
-        });
-        
-        if (response.ok) {
-          toast({
-            title: "Success",
-            description: "Email sent via Outlook",
-          });
-          setIsComposeOpen(false);
-          resetCompose();
-          refetch();
-        }
-      } catch (error) {
-        toast({
-          title: "Error",
-          description: "Failed to send email via Outlook",
-          variant: "destructive",
-        });
-      }
-    } else {
-      // Use local storage
-      createEmailMutation.mutate({
-        ...emailData,
-        status: "sent",
-        folder: "sent"
-      });
-    }
+    // Microsoft OAuth temporarily disabled - always use local storage for now
+    createEmailMutation.mutate({
+      ...emailData,
+      status: "sent",
+      folder: "sent"
+    });
   };
 
   const handleSaveDraft = () => {
@@ -641,23 +518,10 @@ export default function EmailManagement() {
                     size="sm" 
                     className="w-full gap-1"
                     onClick={async () => {
-                      try {
-                        await apiRequest('/api/microsoft/app-auth', 'POST', {
-                          targetMailbox: 'info@sovoice.ai'
-                        });
-                        toast({
-                          title: "Authentication Successful",
-                          description: `Connected to info@sovoice.ai using application permissions`,
-                        });
-                        await refetch();
-                        setTimeout(() => window.location.reload(), 1000);
-                      } catch (error) {
-                        toast({
-                          title: "Authentication Failed",
-                          description: "Please ensure your Azure App has Mail.Read and Mail.ReadWrite permissions with admin consent",
-                          variant: "destructive",
-                        });
-                      }
+                      toast({
+                        title: "Coming Soon",
+                        description: "Microsoft Outlook integration is being upgraded. Please check back soon.",
+                      });
                     }}
                     data-testid="button-app-auth"
                   >

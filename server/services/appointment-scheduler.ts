@@ -1,13 +1,13 @@
 import { fetchCalendlyEventTypes } from "../calendly-client.js";
-import { MicrosoftAuthService } from "./microsoft-auth.js";
+// import { MicrosoftAuthService } from "./microsoft-auth.js"; // Temporarily disabled - being replaced
 import { storage } from "../storage.js";
 import type { Agent } from "@shared/schema";
 
 export class AppointmentScheduler {
-  private msAuthService: MicrosoftAuthService;
+  // private msAuthService: MicrosoftAuthService; // Temporarily disabled
 
   constructor() {
-    this.msAuthService = new MicrosoftAuthService();
+    // this.msAuthService = new MicrosoftAuthService(); // Temporarily disabled
   }
 
   /**
@@ -321,12 +321,9 @@ export class AppointmentScheduler {
     isConfirmed?: boolean;
   }) {
     try {
-      // Check if Microsoft auth is configured
-      const isConfigured = await this.msAuthService.isConfigured();
-      if (!isConfigured) {
-        console.log("Microsoft email not configured, skipping email notification");
-        return;
-      }
+      // Microsoft OAuth temporarily disabled - email notification skipped
+      console.log("Microsoft OAuth temporarily disabled, skipping email notification");
+      return;
 
       let emailBody: string;
       let subject: string;
