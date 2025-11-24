@@ -244,32 +244,73 @@ export class MicrosoftAuthService {
     };
   }
 
-  // Get or refresh access token
+  // Get or refresh access token with proactive refresh
   async getAccessToken(): Promise<string> {
     // First, try to load from storage if we don't have a token in memory
     if (!this.accessToken) {
       await this.loadFromStorage();
     }
     
-    // Check if token exists and is still valid
-    if (this.accessToken && this.tokenExpiry && this.tokenExpiry > new Date()) {
-      return this.accessToken;
+    // Check if token exists and is still valid with 5-minute buffer
+    const now = new Date();
+    const bufferTime = 5 * 60 * 1000; // 5 minutes buffer
+    
+    if (this.accessToken && this.tokenExpiry) {
+      const expiryWithBuffer = new Date(this.tokenExpiry.getTime() - bufferTime);
+      
+      if (now < expiryWithBuffer) {
+        // Token is still valid with buffer
+        return this.accessToken;
+      }
+      
+      console.log("Token expiring soon or expired, refreshing proactively...");
     }
 
-    // If token is expired, try different refresh strategies based on auth type
+    // If token is expired or expiring soon, try different refresh strategies based on auth type
     if (this.authType === "application") {
       // For application auth, re-acquire using client credentials
       try {
-        console.log("Token expired, refreshing using client credentials...");
+        console.log("Refreshing token using client credentials...");
         const token = await this.acquireTokenByClientCredentials(this.targetMailbox || "info@sovoice.ai");
+        console.log("Successfully refreshed application token");
         return token;
       } catch (error) {
         console.error("Failed to refresh token using client credentials:", error);
       }
     } else if (this.authType === "delegated") {
-      // For delegated auth, try silent refresh using cached account
-      try {
-        if (this.accountInfo) {
+      // For delegated auth, try multiple strategies
+      
+      // First try: Use refresh token if available
+      if (this.refreshToken) {
+        try {
+          console.log("Attempting to refresh using refresh token...");
+          const refreshTokenRequest = {
+            refreshToken: this.refreshToken,
+            scopes: SCOPES,
+          };
+          
+          const response = await this.msalClient.acquireTokenByRefreshToken(refreshTokenRequest);
+          if (response && response.accessToken) {
+            this.accessToken = response.accessToken;
+            this.tokenExpiry = response.expiresOn || null;
+            this.refreshToken = (response as any).refreshToken || this.refreshToken;
+            this.accountInfo = response.account || this.accountInfo;
+            
+            // Save refreshed token to storage
+            await this.saveToStorage();
+            
+            console.log("Successfully refreshed token using refresh token");
+            return response.accessToken;
+          }
+        } catch (error) {
+          console.error("Failed to refresh using refresh token:", error);
+        }
+      }
+      
+      // Second try: Silent refresh using cached account
+      if (this.accountInfo) {
+        try {
+          console.log("Attempting silent token refresh...");
           const silentRequest = {
             scopes: SCOPES,
             account: this.accountInfo,
@@ -285,11 +326,12 @@ export class MicrosoftAuthService {
             // Save refreshed token to storage
             await this.saveToStorage();
             
+            console.log("Successfully refreshed token silently");
             return response.accessToken;
           }
+        } catch (error) {
+          console.error("Failed to refresh delegated token silently:", error);
         }
-      } catch (error) {
-        console.error("Failed to refresh delegated token silently:", error);
       }
     }
     
@@ -298,6 +340,7 @@ export class MicrosoftAuthService {
       try {
         console.log("Attempting application auth as fallback...");
         const token = await this.acquireTokenByClientCredentials("info@sovoice.ai");
+        console.log("Successfully acquired token using application auth fallback");
         return token;
       } catch (error) {
         console.error("Failed application auth fallback:", error);
