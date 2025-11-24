@@ -94,12 +94,13 @@ export class OpenAIRealtimeSession {
       setTimeout(() => {
         console.log(`[Session ${this.callId}] Triggering initial audio greeting`);
         
-        // Simply request a response without creating a message first
-        // This should trigger the AI to generate both text and audio
+        // Request a response with explicit instructions for the greeting
+        // This ensures the AI knows what to say initially
         this.sendToOpenAI({
           type: "response.create",
           response: {
-            modalities: ["text", "audio"]
+            modalities: ["text", "audio"],
+            instructions: "Greet the caller professionally. Introduce yourself as the SOVOICE Assistant and ask how you can help them today. Be friendly and welcoming."
           }
         });
         
