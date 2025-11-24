@@ -2546,6 +2546,61 @@ AGENT_CREATE:
     }
   });
 
+  // ==================== OUTLOOK SIMPLE LOGIN ENDPOINTS ====================
+  
+  // Simple Outlook login with email/password
+  app.post("/api/outlook/login", async (req: Request, res: Response) => {
+    try {
+      const { email, appPassword } = req.body;
+      
+      if (!email || !appPassword) {
+        return res.status(400).json({ 
+          error: "Email and app password are required" 
+        });
+      }
+
+      const { outlookSMTP } = await import("./services/outlook-smtp.js");
+      const success = await outlookSMTP.saveCredentials(email, appPassword);
+      
+      if (success) {
+        res.json({ 
+          success: true, 
+          message: "Outlook connected successfully",
+          email 
+        });
+      } else {
+        res.status(400).json({ 
+          error: "Invalid credentials or connection failed" 
+        });
+      }
+    } catch (error) {
+      console.error("Outlook login error:", error);
+      res.status(500).json({ error: "Failed to connect to Outlook" });
+    }
+  });
+
+  app.post("/api/outlook/logout", async (req: Request, res: Response) => {
+    try {
+      const { outlookSMTP } = await import("./services/outlook-smtp.js");
+      await outlookSMTP.removeCredentials();
+      res.json({ success: true, message: "Outlook disconnected" });
+    } catch (error) {
+      console.error("Outlook logout error:", error);
+      res.status(500).json({ error: "Failed to disconnect" });
+    }
+  });
+
+  app.get("/api/outlook/status", async (req: Request, res: Response) => {
+    try {
+      const { outlookSMTP } = await import("./services/outlook-smtp.js");
+      const status = outlookSMTP.getStatus();
+      res.json(status);
+    } catch (error) {
+      console.error("Status check error:", error);
+      res.status(500).json({ connected: false, email: null });
+    }
+  });
+
   // ==================== MICROSOFT OAUTH ENDPOINTS ====================
   
   // Get OAuth status
