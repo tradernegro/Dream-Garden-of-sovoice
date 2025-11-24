@@ -6,6 +6,16 @@ SoVoice AI is an AI-powered voice call assistant platform designed to automate c
 
 ## Recent Changes (November 2025)
 
+- **GPT-4o Upgrade & Confirmation-Based Booking**: Major improvements to appointment scheduling accuracy and reliability
+  - **Model Upgrade**: Switched from gpt-4o-realtime-preview-2024-10-01 to gpt-4o-realtime-preview for better speech recognition
+  - **Confirmation Required**: System now requires ALL information (name, email, preferred time) AND explicit customer confirmation before booking
+  - **No Automatic Booking**: Removed automatic appointment creation - must have confirmed details from customer
+  - **Enhanced Extraction**: Improved recognition of spoken email addresses (e.g., "test at example punkt de" → test@example.de)
+  - **Time Extraction**: Better detection of appointment times from natural language ("morgen um 14 Uhr", "heute 15:30")
+  - **Status Logging**: System tracks and logs missing information (Name, E-Mail, Zeit, Bestätigung)
+  - **Agent Prompt Update**: SOVOICE Assistant now explicitly asks for confirmation with summary before booking
+  - **Confirmation Patterns**: Recognizes "Ja", "Richtig", "Stimmt", "Korrekt", "Passt", "Perfekt", "Einverstanden" as confirmations
+
 - **Email Integration via SMTP with App Passwords**: Implemented reliable email sending for appointment confirmations
   - **OAuth Limitation**: Microsoft OAuth redirects are blocked by Replit environment (ERR_BLOCKED_BY_RESPONSE)
   - **Working Solution**: SMTP authentication using app passwords (outlook-smtp-env.ts)
