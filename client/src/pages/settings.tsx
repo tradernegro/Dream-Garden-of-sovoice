@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Phone, Key, Database, Webhook, Plus, Trash2, Copy, Eye, EyeOff, AlertCircle, Mail, ExternalLink, LogOut, Info } from "lucide-react";
+import { Phone, Key, Database, Webhook, Plus, Trash2, Copy, Eye, EyeOff, AlertCircle, Mail, ExternalLink, LogOut, Info, Calendar } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -31,6 +31,7 @@ export default function Settings() {
   const [outlookEmail, setOutlookEmail] = useState("");
   const [outlookPassword, setOutlookPassword] = useState("");
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [isConnectingGoogleCalendar, setIsConnectingGoogleCalendar] = useState(false);
 
   // Fetch API keys
   const { data: apiKeys = [], isLoading } = useQuery<ApiKey[]>({
@@ -57,6 +58,14 @@ export default function Settings() {
     refetchInterval: 30000, // Refresh every 30 seconds
   });
 
+  // Fetch Google Calendar status
+  const { data: googleCalendarStatus } = useQuery<{
+    connected: boolean;
+  }>({
+    queryKey: ["/api/google-calendar/status"],
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
+
   // Handle Microsoft OAuth login
   const handleMicrosoftLogin = async () => {
     setIsLoggingIn(true);
@@ -80,10 +89,56 @@ export default function Settings() {
     }
   };
 
+  // Handle Google Calendar OAuth login
+  const handleGoogleCalendarConnect = async () => {
+    setIsConnectingGoogleCalendar(true);
+    try {
+      const response = await fetch("/api/google-calendar/auth");
+      if (response.ok) {
+        const { authUrl } = await response.json();
+        // Redirect to Google OAuth
+        window.location.href = authUrl;
+      } else {
+        throw new Error("Failed to get Google authorization URL");
+      }
+    } catch (error) {
+      console.error("Failed to connect Google Calendar:", error);
+      toast({
+        title: "Verbindungsfehler",
+        description: "Google Calendar Verbindung konnte nicht hergestellt werden",
+        variant: "destructive",
+      });
+      setIsConnectingGoogleCalendar(false);
+    }
+  };
+
+  // Handle Google Calendar disconnect
+  const disconnectGoogleCalendar = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("DELETE", "/api/google-calendar/disconnect");
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Google Calendar getrennt",
+        description: "Die Verbindung zu Google Calendar wurde entfernt",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/google-calendar/status"] });
+    },
+    onError: (error) => {
+      toast({
+        title: "Fehler",
+        description: "Verbindung konnte nicht getrennt werden",
+        variant: "destructive",
+      });
+    },
+  });
+
   // Check for OAuth callback parameters
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     
+    // Microsoft OAuth callback
     if (params.get("success") === "connected") {
       const email = params.get("email");
       toast({
@@ -100,6 +155,27 @@ export default function Settings() {
       toast({
         title: "❌ Connection failed",
         description: details || `Failed to connect to Microsoft Outlook (${errorType})`,
+        variant: "destructive",
+      });
+      // Clean up URL
+      window.history.replaceState({}, document.title, "/settings");
+    }
+
+    // Google Calendar OAuth callback
+    if (params.get("google_calendar_connected") === "true") {
+      toast({
+        title: "✅ Google Calendar verbunden!",
+        description: "Termine werden jetzt automatisch mit Google Calendar synchronisiert",
+      });
+      // Clean up URL
+      window.history.replaceState({}, document.title, "/settings");
+      // Refetch status
+      queryClient.invalidateQueries({ queryKey: ["/api/google-calendar/status"] });
+    } else if (params.get("google_error")) {
+      const errorType = params.get("google_error");
+      toast({
+        title: "❌ Google Calendar Verbindung fehlgeschlagen",
+        description: errorType === "missing_code" ? "Autorisierungscode fehlt" : "Authentifizierung fehlgeschlagen",
         variant: "destructive",
       });
       // Clean up URL
@@ -425,6 +501,106 @@ export default function Settings() {
                       </div>
                     </AlertDescription>
                   </Alert>
+                </>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Google Calendar Integration */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10">
+                  <Calendar className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <CardTitle>Google Calendar</CardTitle>
+                  <CardDescription>Termine automatisch mit Google Calendar synchronisieren</CardDescription>
+                </div>
+              </div>
+              {googleCalendarStatus?.connected ? (
+                <Badge variant="secondary" className="bg-green-500/10 text-green-700 dark:text-green-400">
+                  Verbunden
+                </Badge>
+              ) : (
+                <Badge variant="secondary" className="bg-red-500/10 text-red-700 dark:text-red-400">
+                  Nicht verbunden
+                </Badge>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4">
+              {googleCalendarStatus?.connected ? (
+                <>
+                  <Alert className="border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950/30">
+                    <Calendar className="h-4 w-4 text-green-600" />
+                    <AlertDescription className="text-green-700 dark:text-green-400">
+                      <strong>✓ Google Calendar ist verbunden</strong>
+                      <br />
+                      Neue Termine werden automatisch in Ihrem Google Kalender erstellt.
+                    </AlertDescription>
+                  </Alert>
+                  
+                  <div className="flex items-center gap-3">
+                    <Button 
+                      variant="destructive" 
+                      onClick={() => disconnectGoogleCalendar.mutate()}
+                      disabled={disconnectGoogleCalendar.isPending}
+                      data-testid="button-disconnect-google-calendar"
+                    >
+                      <LogOut className="h-4 w-4 mr-2" />
+                      Verbindung trennen
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <Alert>
+                    <Info className="h-4 w-4" />
+                    <AlertDescription>
+                      <strong>Google Calendar aktivieren für:</strong>
+                      <ul className="list-disc ml-6 mt-2">
+                        <li>Automatische Terminsynchronisation</li>
+                        <li>Echtzeit-Updates in beide Richtungen</li>
+                        <li>Erinnerungen und Benachrichtigungen</li>
+                        <li>Mobile App Integration</li>
+                      </ul>
+                    </AlertDescription>
+                  </Alert>
+
+                  <div className="space-y-4">
+                    <Button 
+                      onClick={handleGoogleCalendarConnect}
+                      disabled={isConnectingGoogleCalendar}
+                      className="w-full sm:w-auto"
+                      data-testid="button-connect-google-calendar"
+                    >
+                      <Calendar className="h-4 w-4 mr-2" />
+                      {isConnectingGoogleCalendar ? "Verbinde..." : "Mit Google Calendar verbinden"}
+                    </Button>
+
+                    <Alert>
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription className="space-y-2">
+                        <p className="font-semibold">Konfiguration erforderlich:</p>
+                        <p>Um Google Calendar zu nutzen, benötigen Sie Google OAuth Credentials:</p>
+                        <ol className="list-decimal ml-6 mt-2 space-y-1">
+                          <li>Gehen Sie zur <a href="https://console.cloud.google.com" target="_blank" rel="noopener noreferrer" className="text-primary underline">Google Cloud Console</a></li>
+                          <li>Aktivieren Sie die Google Calendar API</li>
+                          <li>Erstellen Sie OAuth 2.0 Credentials</li>
+                          <li>Fügen Sie diese Environment-Variablen hinzu:</li>
+                        </ol>
+                        <div className="mt-2 p-2 bg-muted rounded-md font-mono text-xs">
+                          GOOGLE_CLIENT_ID=ihre-client-id.apps.googleusercontent.com<br/>
+                          GOOGLE_CLIENT_SECRET=ihr-client-secret
+                        </div>
+                        <p className="text-sm">Redirect URI: <code className="text-xs bg-muted px-1 py-0.5 rounded">{window.location.origin}/api/google-calendar/callback</code></p>
+                      </AlertDescription>
+                    </Alert>
+                  </div>
                 </>
               )}
             </div>
