@@ -312,27 +312,58 @@ export default function Settings() {
                   <Separator />
                   <div className="space-y-2">
                     <Label>Status</Label>
-                    <p className="text-sm text-muted-foreground">
-                      ✅ E-Mail-Versand ist aktiv. Terminbestätigungen werden automatisch versendet.
-                    </p>
+                    <div className="space-y-2">
+                      <p className="text-sm text-muted-foreground">
+                        E-Mail-Konfiguration gefunden. Bitte testen Sie die Verbindung.
+                      </p>
+                      <Alert className="border-yellow-500/20 bg-yellow-500/5">
+                        <AlertCircle className="h-4 w-4 text-yellow-600" />
+                        <AlertDescription className="text-xs">
+                          <strong>Hinweis:</strong> Falls SMTP für Ihren Microsoft-Tenant deaktiviert ist, 
+                          muss Ihr Administrator dies aktivieren oder Sie verwenden OAuth außerhalb von Replit.
+                        </AlertDescription>
+                      </Alert>
+                    </div>
                   </div>
                   <Button 
                     variant="outline" 
                     onClick={async () => {
                       try {
                         const response = await fetch("/api/outlook/test", { method: "POST" });
+                        const data = await response.json();
+                        
                         if (response.ok) {
                           toast({
-                            title: "Test erfolgreich",
-                            description: "Test-E-Mail wurde erfolgreich versendet!",
+                            title: "✅ Test erfolgreich",
+                            description: data.message || "Test-E-Mail wurde erfolgreich versendet!",
                           });
                         } else {
-                          throw new Error("Test fehlgeschlagen");
+                          // Show detailed error message
+                          const errorMessage = data.details || data.error || "Test fehlgeschlagen";
+                          toast({
+                            title: data.error || "Fehler",
+                            description: (
+                              <div className="space-y-2">
+                                <p>{errorMessage}</p>
+                                {data.helpUrl && (
+                                  <a 
+                                    href={data.helpUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-blue-500 hover:underline text-xs"
+                                  >
+                                    Weitere Informationen →
+                                  </a>
+                                )}
+                              </div>
+                            ) as any,
+                            variant: "destructive",
+                          });
                         }
                       } catch (error) {
                         toast({
-                          title: "Fehler",
-                          description: "Konnte Test-E-Mail nicht senden",
+                          title: "Verbindungsfehler",
+                          description: "Konnte Server nicht erreichen",
                           variant: "destructive",
                         });
                       }

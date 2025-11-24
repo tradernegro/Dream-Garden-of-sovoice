@@ -2564,16 +2564,54 @@ AGENT_CREATE:
   app.post("/api/outlook/test", async (req: Request, res: Response) => {
     try {
       const { outlookSMTP } = await import("./services/outlook-smtp-env.js");
-      const success = await outlookSMTP.testConnection();
       
-      if (success) {
-        res.json({ success: true, message: "Connection successful" });
-      } else {
-        res.status(400).json({ error: "Connection failed. Please check your credentials." });
+      if (!outlookSMTP.isConfigured()) {
+        return res.status(400).json({ 
+          error: "E-Mail nicht konfiguriert",
+          details: "Bitte konfigurieren Sie OUTLOOK_EMAIL und OUTLOOK_APP_PASSWORD" 
+        });
       }
-    } catch (error) {
-      console.error("Outlook test error:", error);
-      res.status(500).json({ error: "Failed to test connection" });
+
+      // Try to send a test email
+      const testEmail = await outlookSMTP.sendEmail({
+        to: process.env.OUTLOOK_EMAIL || "info@sovoice.ai",
+        subject: "SoVoice AI - Test E-Mail",
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #333;">Test E-Mail erfolgreich!</h2>
+            <p>Diese Test-E-Mail bestätigt, dass Ihr E-Mail-Versand korrekt konfiguriert ist.</p>
+            <p style="color: #666; font-size: 14px;">
+              Gesendet von SoVoice AI am ${new Date().toLocaleString("de-DE")}
+            </p>
+          </div>
+        `
+      });
+
+      if (testEmail.success) {
+        res.json({ success: true, message: "Test-E-Mail erfolgreich versendet!" });
+      } else {
+        throw new Error(testEmail.error || "Unbekannter Fehler");
+      }
+    } catch (error: any) {
+      console.error("Test email error:", error);
+      
+      // Check for specific SMTP errors
+      let userMessage = "E-Mail-Versand fehlgeschlagen";
+      let details = error.message;
+      
+      if (error.message?.includes("SmtpClientAuthentication is disabled")) {
+        userMessage = "SMTP ist für diesen Microsoft-Tenant deaktiviert";
+        details = "Ihr Microsoft 365 Administrator muss SMTP-Authentifizierung aktivieren. Mehr Infos: https://aka.ms/smtp_auth_disabled";
+      } else if (error.message?.includes("Invalid credentials") || error.message?.includes("535")) {
+        userMessage = "Ungültige Anmeldedaten";
+        details = "Bitte überprüfen Sie Ihr App-Passwort. Erstellen Sie ein neues unter: https://account.microsoft.com/security";
+      }
+      
+      res.status(400).json({ 
+        error: userMessage,
+        details: details,
+        helpUrl: error.message?.includes("SmtpClientAuthentication") ? "https://aka.ms/smtp_auth_disabled" : null
+      });
     }
   });
 
