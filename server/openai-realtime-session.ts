@@ -337,18 +337,35 @@ export class OpenAIRealtimeSession {
       const currentMetadata = (call.metadata || {}) as any;
       let updated = false;
       
-      // Extract email pattern (common email formats)
-      const emailMatch = transcript.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/);
+      // Verbesserte E-Mail-Erkennung (auch gesprochene E-Mails)
+      // Normalisiere gesprochene E-Mail-Adressen
+      let processedTranscript = transcript
+        .replace(/\s+at\s+/gi, '@')
+        .replace(/\s+ät\s+/gi, '@')
+        .replace(/\s+bei\s+/gi, '@')
+        .replace(/\s+punkt\s+/gi, '.')
+        .replace(/\s+point\s+/gi, '.')
+        .replace(/\s+dot\s+/gi, '.')
+        .replace(/\s+bindestrich\s+/gi, '-')
+        .replace(/\s+minus\s+/gi, '-')
+        .replace(/\s+dash\s+/gi, '-')
+        .replace(/\s+unterstrich\s+/gi, '_')
+        .replace(/\s+underscore\s+/gi, '_');
+      
+      // E-Mail-Regex mit verbesserter Erkennung
+      const emailMatch = processedTranscript.match(/\b[A-Za-z0-9][A-Za-z0-9._%+-]*@[A-Za-z0-9][A-Za-z0-9.-]*\.[A-Za-z]{2,}\b/i);
       if (emailMatch && !currentMetadata.customerEmail) {
         currentMetadata.customerEmail = emailMatch[0].toLowerCase();
         updated = true;
         console.log(`[Session ${this.callId}] Extracted email: ${currentMetadata.customerEmail}`);
       }
       
-      // Extract name patterns (common German and English name introductions)
+      // Verbesserte Namenserkennung (mehr Muster)
       const namePatterns = [
         /(?:mein name ist|ich heiße|ich bin|my name is|i am|i'm)\s+([A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+)?)/i,
         /(?:hier spricht|this is)\s+([A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+)?)/i,
+        /(?:ich bin der|ich bin die)\s+([A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+)?)/i,
+        /([A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+)?)\s+(?:hier|am apparat|am telefon)/i,
       ];
       
       for (const pattern of namePatterns) {
@@ -361,7 +378,7 @@ export class OpenAIRealtimeSession {
         }
       }
       
-      // Extract company patterns
+      // Firmenerkennung
       const companyPatterns = [
         /(?:von der firma|von|from company|from|at|bei)\s+([A-ZÄÖÜ][A-Za-zäöüß]+(?:\s+[A-ZÄÖÜ]?[A-Za-zäöüß]+)*(?:\s+(?:GmbH|AG|KG|UG|Inc|LLC|Ltd|Corporation|Corp))?)/i,
         /(?:arbeite bei|work at|work for|employed at)\s+([A-ZÄÖÜ][A-Za-zäöüß]+(?:\s+[A-ZÄÖÜ]?[A-Za-zäöüß]+)*)/i,
@@ -373,6 +390,38 @@ export class OpenAIRealtimeSession {
           currentMetadata.customerCompany = companyMatch[1].trim();
           updated = true;
           console.log(`[Session ${this.callId}] Extracted company: ${currentMetadata.customerCompany}`);
+          break;
+        }
+      }
+      
+      // NEU: Terminzeit-Erkennung
+      const timePatterns = [
+        /(?:termin|appointment|meeting).*?(?:um|at)\s*(\d{1,2})[:\.]?(\d{0,2})\s*(?:uhr|o'clock)?/i,
+        /(?:morgen|tomorrow).*?(?:um|at)?\s*(\d{1,2})[:\.]?(\d{0,2})\s*(?:uhr|o'clock)?/i,
+        /(?:heute|today).*?(?:um|at)?\s*(\d{1,2})[:\.]?(\d{0,2})\s*(?:uhr|o'clock)?/i,
+        /(?:um|at)\s*(\d{1,2})[:\.]?(\d{0,2})\s*(?:uhr|o'clock)?.*?(?:termin|appointment)/i,
+        /(\d{1,2})[:\.](\d{2})\s*(?:uhr|o'clock)?/i,
+      ];
+      
+      for (const pattern of timePatterns) {
+        const timeMatch = transcript.match(pattern);
+        if (timeMatch && !currentMetadata.preferredTime) {
+          const hours = parseInt(timeMatch[1]);
+          const minutes = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
+          
+          // Erstelle Zeitstring
+          let timeString = `${hours}:${minutes.toString().padStart(2, '0')}`;
+          
+          // Füge Tag hinzu wenn erwähnt
+          if (transcript.toLowerCase().includes('morgen') || transcript.toLowerCase().includes('tomorrow')) {
+            timeString = `morgen um ${timeString} Uhr`;
+          } else if (transcript.toLowerCase().includes('heute') || transcript.toLowerCase().includes('today')) {
+            timeString = `heute um ${timeString} Uhr`;
+          }
+          
+          currentMetadata.preferredTime = timeString;
+          updated = true;
+          console.log(`[Session ${this.callId}] Extracted preferred time: ${currentMetadata.preferredTime}`);
           break;
         }
       }
@@ -442,10 +491,23 @@ export class OpenAIRealtimeSession {
         console.log(`[Session ${this.callId}] Attempting to schedule appointment for ${customerName} (${customerEmail})`);
         
         try {
-          // Default appointment time: tomorrow at 12:00
-          const startTime = new Date();
-          startTime.setDate(startTime.getDate() + 1);
-          startTime.setHours(12, 0, 0, 0);
+          // Parse preferred time from metadata or use default
+          let startTime: Date;
+          
+          if (metadata.preferredTime) {
+            // Use the helper function from appointment-scheduler
+            const { AppointmentScheduler } = await import("./services/appointment-scheduler.js");
+            const scheduler = new AppointmentScheduler();
+            // Use the natural time parser
+            startTime = (scheduler as any).parseNaturalTime(metadata.preferredTime);
+            console.log(`[Session ${this.callId}] Using extracted time: ${metadata.preferredTime} -> ${startTime.toLocaleString('de-DE')}`);
+          } else {
+            // Default to tomorrow at 10:00 AM if no time was extracted
+            startTime = new Date();
+            startTime.setDate(startTime.getDate() + 1);
+            startTime.setHours(10, 0, 0, 0);
+            console.log(`[Session ${this.callId}] No time extracted, using default: ${startTime.toLocaleString('de-DE')}`);
+          }
           
           // 30 minute appointment
           const endTime = new Date(startTime);
