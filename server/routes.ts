@@ -1654,6 +1654,85 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ==================== GOOGLE CALENDAR ROUTES ====================
+  
+  // Import the Google Calendar service
+  const { googleCalendarService } = await import('./services/google-calendar-service');
+
+  // Get Google Calendar auth URL
+  app.get("/api/google-calendar/auth", async (req: Request, res: Response) => {
+    try {
+      await googleCalendarService.initializeOAuth();
+      const authUrl = googleCalendarService.generateAuthUrl();
+      res.json({ authUrl });
+    } catch (error) {
+      console.error("Failed to generate Google auth URL:", error);
+      res.status(500).json({ error: "Failed to generate authorization URL. Please ensure GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are configured." });
+    }
+  });
+
+  // Handle Google Calendar OAuth callback
+  app.get("/api/google-calendar/callback", async (req: Request, res: Response) => {
+    try {
+      const { code } = req.query;
+      
+      if (!code) {
+        return res.redirect('/settings?google_error=missing_code');
+      }
+
+      await googleCalendarService.initializeOAuth();
+      await googleCalendarService.handleOAuthCallback(code as string);
+      
+      // Broadcast connection status update
+      broadcastToClients("google_calendar_connected", { connected: true });
+      
+      // Redirect to settings page with success
+      res.redirect('/settings?google_calendar_connected=true');
+    } catch (error) {
+      console.error("Google OAuth callback error:", error);
+      res.redirect('/settings?google_error=auth_failed');
+    }
+  });
+
+  // Check Google Calendar connection status
+  app.get("/api/google-calendar/status", async (req: Request, res: Response) => {
+    try {
+      await googleCalendarService.initializeOAuth();
+      const isConnected = await googleCalendarService.isConnected();
+      res.json({ connected: isConnected });
+    } catch (error) {
+      console.error("Failed to check Google Calendar status:", error);
+      res.status(500).json({ error: "Failed to check connection status" });
+    }
+  });
+
+  // Disconnect Google Calendar
+  app.delete("/api/google-calendar/disconnect", async (req: Request, res: Response) => {
+    try {
+      await googleCalendarService.disconnect();
+      
+      // Broadcast disconnection status update
+      broadcastToClients("google_calendar_disconnected", { connected: false });
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Failed to disconnect Google Calendar:", error);
+      res.status(500).json({ error: "Failed to disconnect Google Calendar" });
+    }
+  });
+
+  // List upcoming events from Google Calendar
+  app.get("/api/google-calendar/events", async (req: Request, res: Response) => {
+    try {
+      await googleCalendarService.initializeOAuth();
+      const events = await googleCalendarService.listUpcomingEvents(20);
+      res.json({ events });
+    } catch (error) {
+      console.error("Failed to list Google Calendar events:", error);
+      res.status(500).json({ error: "Failed to list calendar events" });
+    }
+  });
+
   // ==================== API KEY ROUTES ====================
   
   // Get all API keys (returns only metadata, NOT the actual keys)
