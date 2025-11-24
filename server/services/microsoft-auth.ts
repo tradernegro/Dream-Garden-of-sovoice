@@ -132,6 +132,29 @@ export class MicrosoftAuthService {
     }
   }
 
+  // Generate authorization URL with admin consent and state for CSRF protection
+  async getAuthorizationUrlWithAdminConsentAndState(redirectUri: string, state: string): Promise<string> {
+    const authCodeUrlParameters = {
+      scopes: SCOPES,
+      redirectUri,
+      responseMode: "query" as const,
+      prompt: "consent", // Force consent prompt
+      state, // Add state for CSRF protection
+      extraQueryParameters: {
+        prompt: "admin_consent", // Request admin consent
+        access_type: "offline", // Request refresh token
+      }
+    };
+
+    try {
+      const response = await this.msalClient.getAuthCodeUrl(authCodeUrlParameters);
+      return response;
+    } catch (error) {
+      console.error("Error generating auth URL with admin consent and state:", error);
+      throw new Error("Failed to generate authorization URL with admin consent");
+    }
+  }
+
   // Check if Microsoft Auth is configured
   async isConfigured(): Promise<boolean> {
     try {

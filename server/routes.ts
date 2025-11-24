@@ -2601,7 +2601,50 @@ AGENT_CREATE:
 
   // ==================== MICROSOFT OAUTH ENDPOINTS ====================
   
-  // Get Microsoft auth URL
+  // Store for OAuth state parameters (in production, use Redis or DB)
+  const oauthStates = new Map<string, { createdAt: Date; redirectUri: string }>();
+  
+  // Cleanup expired states every minute
+  setInterval(() => {
+    const now = Date.now();
+    for (const [state, data] of oauthStates) {
+      if (now - data.createdAt.getTime() > 10 * 60 * 1000) { // 10 minutes expiry
+        oauthStates.delete(state);
+      }
+    }
+  }, 60 * 1000);
+  
+  // Initiate Microsoft OAuth flow with CSRF protection
+  app.get("/api/microsoft/auth", async (req: Request, res: Response) => {
+    try {
+      const { microsoftAuth } = await import("./services/microsoft-auth");
+      const crypto = await import("crypto");
+      
+      // Generate random state for CSRF protection
+      const state = crypto.randomBytes(32).toString('hex');
+      
+      const domain = process.env.REPLIT_DEV_DOMAIN || process.env.REPLIT_DOMAINS?.split(',')[0] || 'localhost:5000';
+      const protocol = domain.includes('localhost') ? 'http' : 'https';
+      const redirectUri = `${protocol}://${domain}/api/microsoft/callback`;
+      
+      // Store state with expiry
+      oauthStates.set(state, {
+        createdAt: new Date(),
+        redirectUri
+      });
+      
+      // Get auth URL with state parameter
+      const authUrl = await microsoftAuth.getAuthorizationUrlWithAdminConsentAndState(redirectUri, state);
+      
+      // Redirect to Microsoft login
+      res.redirect(authUrl);
+    } catch (error) {
+      console.error("Failed to initiate OAuth flow:", error);
+      res.status(500).json({ error: "Failed to initiate authentication" });
+    }
+  });
+  
+  // Get Microsoft auth URL (legacy endpoint, kept for compatibility)
   app.get("/api/microsoft/auth-url", async (req: Request, res: Response) => {
     try {
       const { microsoftAuth } = await import("./services/microsoft-auth");
@@ -2618,12 +2661,32 @@ AGENT_CREATE:
     }
   });
   
-  // Microsoft OAuth callback
+  // Microsoft OAuth callback with state validation
   app.get("/api/microsoft/callback", async (req: Request, res: Response) => {
     try {
-      const { code } = req.query;
+      const { code, state } = req.query;
+      
+      // Validate code
       if (!code || typeof code !== 'string') {
-        return res.status(400).send("Authorization code missing");
+        throw new Error("Authorization code missing");
+      }
+      
+      // Validate state for CSRF protection
+      if (!state || typeof state !== 'string') {
+        throw new Error("State parameter missing - possible CSRF attack");
+      }
+      
+      const storedState = oauthStates.get(state);
+      if (!storedState) {
+        throw new Error("Invalid state parameter - possible CSRF attack");
+      }
+      
+      // Remove used state (single-use token)
+      oauthStates.delete(state);
+      
+      // Check if state expired (10 minutes)
+      if (Date.now() - storedState.createdAt.getTime() > 10 * 60 * 1000) {
+        throw new Error("State parameter expired - please try again");
       }
       
       const { microsoftAuth } = await import("./services/microsoft-auth");
