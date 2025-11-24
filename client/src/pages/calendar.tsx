@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Calendar as CalendarIcon, Clock, Mail, Phone, Building, Plus, Edit, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Calendar as CalendarIcon, Clock, Mail, Phone, Building, Plus, Edit, Trash2, ChevronLeft, ChevronRight, CheckCircle } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addMonths, subMonths, isSameMonth, isSameDay, isToday, addDays } from "date-fns";
 import { de } from "date-fns/locale";
@@ -21,6 +21,45 @@ export default function CalendarPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingAppointment, setEditingAppointment] = useState<Appointment | null>(null);
   const { toast } = useToast();
+
+  // Listen for WebSocket updates for real-time appointment changes
+  useEffect(() => {
+    const ws = new WebSocket(`${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`);
+    
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        // Listen for the correct event names with colon (not hyphen)
+        if (data.event === 'appointment:created' || data.event === 'appointment:updated' || data.event === 'appointment:deleted') {
+          // Invalidate appointments cache to refresh the calendar
+          queryClient.invalidateQueries({ queryKey: ['/api/appointments'] });
+          
+          if (data.event === 'appointment:created') {
+            toast({
+              title: "Neuer Termin erstellt",
+              description: `Ein neuer Termin wurde hinzugefügt`,
+              duration: 4000,
+              className: "bg-green-50 dark:bg-green-950/30 border-green-300 dark:border-green-700",
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Error processing WebSocket message:', error);
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+
+    ws.onclose = () => {
+      console.log('WebSocket connection closed');
+    };
+
+    return () => {
+      ws.close();
+    };
+  }, [toast]);
 
   // Fetch appointments for current month
   const monthStart = startOfMonth(currentDate);
@@ -44,11 +83,8 @@ export default function CalendarPage() {
   // Create appointment mutation
   const createAppointmentMutation = useMutation({
     mutationFn: async (data: any) => {
-      return apiRequest('/api/appointments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
+      const response = await apiRequest('POST', '/api/appointments', data);
+      return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/appointments'] });
@@ -71,11 +107,8 @@ export default function CalendarPage() {
   // Update appointment mutation
   const updateAppointmentMutation = useMutation({
     mutationFn: async ({ id, ...data }: any) => {
-      return apiRequest(`/api/appointments/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
+      const response = await apiRequest('PATCH', `/api/appointments/${id}`, data);
+      return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/appointments'] });
@@ -91,9 +124,8 @@ export default function CalendarPage() {
   // Delete appointment mutation
   const deleteAppointmentMutation = useMutation({
     mutationFn: async (id: string) => {
-      return apiRequest(`/api/appointments/${id}`, {
-        method: 'DELETE',
-      });
+      const response = await apiRequest('DELETE', `/api/appointments/${id}`);
+      return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/appointments'] });
@@ -349,24 +381,34 @@ export default function CalendarPage() {
                 const isCurrentMonth = isSameMonth(day, currentDate);
                 const isSelected = selectedDate && isSameDay(day, selectedDate);
                 const isCurrentDay = isToday(day);
+                const hasAppointments = appointmentCount > 0;
                 
                 return (
                   <div
                     key={index}
                     onClick={() => setSelectedDate(day)}
                     className={`
-                      p-2 min-h-[80px] border rounded-md cursor-pointer transition-colors
+                      p-2 min-h-[80px] border rounded-md cursor-pointer transition-all duration-200
                       ${!isCurrentMonth ? 'text-muted-foreground bg-muted/10' : ''}
-                      ${isSelected ? 'bg-primary/10 border-primary' : ''}
-                      ${isCurrentDay ? 'bg-accent' : ''}
-                      hover:bg-accent/50
+                      ${isSelected ? 'bg-primary/10 border-primary ring-2 ring-primary/20' : ''}
+                      ${isCurrentDay && !hasAppointments ? 'bg-accent' : ''}
+                      ${hasAppointments ? 'bg-green-50 dark:bg-green-950/20 border-green-400 dark:border-green-600 hover:bg-green-100 dark:hover:bg-green-950/40' : 'hover:bg-accent/50'}
+                      ${hasAppointments && isCurrentDay ? 'bg-green-100 dark:bg-green-950/30' : ''}
                     `}
                     data-testid={`calendar-day-${format(day, 'yyyy-MM-dd')}`}
                   >
-                    <div className="font-medium">{format(day, 'd')}</div>
+                    <div className="flex justify-between items-start">
+                      <div className="font-medium">{format(day, 'd')}</div>
+                      {hasAppointments && (
+                        <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
+                      )}
+                    </div>
                     {appointmentCount > 0 && (
-                      <div className="mt-1">
-                        <Badge variant="secondary" className="text-xs">
+                      <div className="mt-1 space-y-1">
+                        <Badge 
+                          variant="outline" 
+                          className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-300 dark:border-green-700 w-full justify-center"
+                        >
                           {appointmentCount} {appointmentCount === 1 ? 'Termin' : 'Termine'}
                         </Badge>
                       </div>
@@ -396,15 +438,15 @@ export default function CalendarPage() {
                 {selectedDateAppointments
                   .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
                   .map((appointment) => (
-                    <Card key={appointment.id} className="p-3">
+                    <Card key={appointment.id} className="p-3 border-green-200 dark:border-green-800 bg-green-50/30 dark:bg-green-950/10">
                       <div className="flex justify-between items-start">
                         <div className="flex-1">
-                          <div className="font-medium" data-testid={`appointment-title-${appointment.id}`}>
-                            {appointment.title}
+                          <div className="font-semibold text-green-800 dark:text-green-300" data-testid={`appointment-title-${appointment.id}`}>
+                            Termin – {appointment.customerName}
                           </div>
                           <div className="text-sm text-muted-foreground mt-1">
                             <Clock className="inline h-3 w-3 mr-1" />
-                            {format(new Date(appointment.startTime), 'HH:mm')} - {format(new Date(appointment.endTime), 'HH:mm')}
+                            {format(new Date(appointment.startTime), 'dd.MM.yyyy')} – {format(new Date(appointment.startTime), 'HH:mm')} bis {format(new Date(appointment.endTime), 'HH:mm')}
                           </div>
                           <div className="text-sm mt-2 space-y-1">
                             <div>
@@ -424,6 +466,18 @@ export default function CalendarPage() {
                               </div>
                             )}
                           </div>
+                          {appointment.description && (
+                            <div className="mt-2 pt-2 border-t text-xs text-muted-foreground">
+                              <div className="font-medium mb-1">Kommentar:</div>
+                              <div className="whitespace-pre-wrap">{appointment.description}</div>
+                            </div>
+                          )}
+                          <Badge className="mt-2 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-300 dark:border-green-700">
+                            {appointment.type === 'consultation' ? 'Beratung' : 
+                             appointment.type === 'meeting' ? 'Meeting' : 
+                             appointment.type === 'call' ? 'Anruf' : 
+                             appointment.type === 'demo' ? 'Demo' : 'Termin'}
+                          </Badge>
                         </div>
                         <div className="flex gap-1">
                           <Button

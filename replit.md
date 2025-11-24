@@ -6,6 +6,17 @@ SoVoice AI is an AI-powered voice call assistant platform designed to automate c
 
 ## Recent Changes (November 2025)
 
+- **Enhanced Internal Calendar System with Green Visual Indicators**: Improved calendar UI with automatic appointment display
+  - Calendar dates with appointments now show in light/living green color with check icon
+  - Real-time WebSocket updates ensure appointments appear immediately when created during calls
+  - Appointment title format standardized to "Termin – [Customer Name]"
+  - Date/time format displays as DD.MM.YYYY – HH:MM for German locale
+  - Appointments sorted chronologically with multiple appointments per day properly organized
+  - Green-themed cards for appointment details with clear visual hierarchy
+  - Added comment field showing call details and qualification information
+
+## Recent Changes (Previous)
+
 - **Automatic Calendly Appointment Scheduling**: Implemented automatic appointment creation during calls
   - Automatically schedules Calendly appointments when customer name and email are collected
   - Flexible event type matching supports URI, ID, or name-based lookup (e.g., "30min" matches "30 Minute Meeting")

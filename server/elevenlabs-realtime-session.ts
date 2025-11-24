@@ -588,8 +588,8 @@ export class ElevenLabsRealtimeSession {
           
           // Create appointment in our internal system
           const appointment = await storage.createAppointment({
-            title: `Beratungsgespräch mit ${customerName}`,
-            description: `Automatisch erstellt während Telefonat\nAnruf-ID: ${this.callId}`,
+            title: `Termin – ${customerName}`,
+            description: `Automatisch erstellt während Telefonat\nAnruf-ID: ${this.callId}\nGrund des Anrufs: Beratungsgespräch\n${company ? `Firma: ${company}` : ''}`,
             customerName,
             customerEmail,
             customerPhone,
@@ -629,9 +629,9 @@ export class ElevenLabsRealtimeSession {
               });
               
               await msAuthService.sendEmail({
-                to: customerEmail,
+                to: [customerEmail],
                 subject: `Terminbestätigung - ${appointmentTime}`,
-                html: `
+                body: `
                   <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                     <h2 style="color: #333;">Terminbestätigung</h2>
                     
@@ -656,7 +656,7 @@ export class ElevenLabsRealtimeSession {
                     Ihr SoVoice AI Team</p>
                   </div>
                 `,
-                text: `Terminbestätigung\n\nSehr geehrte/r ${customerName},\n\nIhr Termin wurde erfolgreich bestätigt.\n\nTermin: ${appointmentTime}\nArt: Beratungsgespräch\nMedium: Telefon\n${customerPhone ? `Ihre Telefonnummer: ${customerPhone}\n` : ''}${company ? `Firma: ${company}\n` : ''}\n\nWir werden Sie zur vereinbarten Zeit kontaktieren.\n\nMit freundlichen Grüßen\nIhr SoVoice AI Team`
+                isHtml: true
               });
               
               console.log(`[ElevenLabs Session ${this.callId}] Confirmation email sent to ${customerEmail}`);
