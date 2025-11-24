@@ -2546,58 +2546,34 @@ AGENT_CREATE:
     }
   });
 
-  // ==================== OUTLOOK SIMPLE LOGIN ENDPOINTS ====================
+  // ==================== OUTLOOK SIMPLE STATUS ENDPOINT ====================
   
-  // Simple Outlook login with email/password
-  app.post("/api/outlook/login", async (req: Request, res: Response) => {
-    try {
-      const { email, appPassword } = req.body;
-      
-      if (!email || !appPassword) {
-        return res.status(400).json({ 
-          error: "Email and app password are required" 
-        });
-      }
-
-      const { outlookSMTP } = await import("./services/outlook-smtp.js");
-      const success = await outlookSMTP.saveCredentials(email, appPassword);
-      
-      if (success) {
-        res.json({ 
-          success: true, 
-          message: "Outlook connected successfully",
-          email 
-        });
-      } else {
-        res.status(400).json({ 
-          error: "Invalid credentials or connection failed" 
-        });
-      }
-    } catch (error) {
-      console.error("Outlook login error:", error);
-      res.status(500).json({ error: "Failed to connect to Outlook" });
-    }
-  });
-
-  app.post("/api/outlook/logout", async (req: Request, res: Response) => {
-    try {
-      const { outlookSMTP } = await import("./services/outlook-smtp.js");
-      await outlookSMTP.removeCredentials();
-      res.json({ success: true, message: "Outlook disconnected" });
-    } catch (error) {
-      console.error("Outlook logout error:", error);
-      res.status(500).json({ error: "Failed to disconnect" });
-    }
-  });
-
+  // Get Outlook SMTP status (configured via environment variables)
   app.get("/api/outlook/status", async (req: Request, res: Response) => {
     try {
-      const { outlookSMTP } = await import("./services/outlook-smtp.js");
+      const { outlookSMTP } = await import("./services/outlook-smtp-env.js");
       const status = outlookSMTP.getStatus();
       res.json(status);
     } catch (error) {
-      console.error("Status check error:", error);
-      res.status(500).json({ connected: false, email: null });
+      console.error("Outlook status check error:", error);
+      res.status(500).json({ configured: false, connected: false, email: null });
+    }
+  });
+  
+  // Test Outlook connection
+  app.post("/api/outlook/test", async (req: Request, res: Response) => {
+    try {
+      const { outlookSMTP } = await import("./services/outlook-smtp-env.js");
+      const success = await outlookSMTP.testConnection();
+      
+      if (success) {
+        res.json({ success: true, message: "Connection successful" });
+      } else {
+        res.status(400).json({ error: "Connection failed. Please check your credentials." });
+      }
+    } catch (error) {
+      console.error("Outlook test error:", error);
+      res.status(500).json({ error: "Failed to test connection" });
     }
   });
 

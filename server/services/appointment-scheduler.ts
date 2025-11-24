@@ -1,5 +1,5 @@
 import { fetchCalendlyEventTypes } from "../calendly-client.js";
-import { microsoftOAuth } from "./microsoft-oauth.js";
+import { outlookSMTP } from "./outlook-smtp-env.js";
 import { storage } from "../storage.js";
 import type { Agent } from "@shared/schema";
 
@@ -319,15 +319,10 @@ export class AppointmentScheduler {
     isConfirmed?: boolean;
   }) {
     try {
-      // Check if Microsoft OAuth is configured and connected
-      const status = microsoftOAuth.getConnectionStatus();
-      if (!status.configured) {
-        console.log("Microsoft OAuth not configured, skipping email notification");
-        return;
-      }
-      
-      if (!status.connected || !status.email) {
-        console.log("Microsoft OAuth not connected, skipping email notification");
+      // Check if Outlook SMTP is configured
+      const status = outlookSMTP.getStatus();
+      if (!status.configured || !status.email) {
+        console.log("Outlook SMTP not configured, skipping email notification");
         return;
       }
 
@@ -401,9 +396,8 @@ export class AppointmentScheduler {
         `;
       }
 
-      // Send email using the new OAuth service
-      const success = await microsoftOAuth.sendEmail({
-        from: status.email!, // Use the connected email account
+      // Send email using Outlook SMTP
+      const success = await outlookSMTP.sendEmail({
         to: customerEmail,
         subject,
         html: emailBody,
@@ -454,11 +448,10 @@ export class AppointmentScheduler {
         </div>
       `;
 
-      // Check if Microsoft OAuth is configured before sending
-      const status = microsoftOAuth.getConnectionStatus();
-      if (status.connected && status.email) {
-        await microsoftOAuth.sendEmail({
-          from: status.email,
+      // Check if Outlook SMTP is configured before sending
+      const status = outlookSMTP.getStatus();
+      if (status.configured && status.email) {
+        await outlookSMTP.sendEmail({
           to: invitee.email,
           subject: "Appointment Confirmed - SoVoice AI",
           html: emailBody,
