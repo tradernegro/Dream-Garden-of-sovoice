@@ -212,7 +212,7 @@ Falls der Kunde keine E-Mail angeben möchte:
       .limit(1);
 
     if (existingAgent.length === 0) {
-      // Insert new system agent
+      // Insert new system agent ONLY if it doesn't exist
       await db.insert(agents).values({
         ...sovoiceAgentData,
         createdAt: new Date(),
@@ -220,15 +220,8 @@ Falls der Kunde keine E-Mail angeben möchte:
       });
       console.log("[Init] Created SOVOICE system agent");
     } else {
-      // Update existing agent to ensure it has latest configuration
-      await db
-        .update(agents)
-        .set({
-          ...sovoiceAgentData,
-          updatedAt: new Date(),
-        })
-        .where(eq(agents.id, sovoiceAgentId));
-      console.log("[Init] Updated SOVOICE system agent");
+      // DO NOT update existing agent - preserve user's customizations
+      console.log("[Init] SOVOICE system agent already exists - preserving existing configuration");
     }
   } catch (error) {
     console.error("[Init] Failed to initialize system agents:", error);
