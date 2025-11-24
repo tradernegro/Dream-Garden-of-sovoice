@@ -55,8 +55,8 @@ export class OpenAIRealtimeSession {
       throw new Error("No active agent found");
     }
 
-    // Connect to OpenAI Realtime API
-    const url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01";
+    // Connect to OpenAI Realtime API - Using GPT-4o for better accuracy
+    const url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview";
     this.openaiWs = new WebSocket(url, {
       headers: {
         "Authorization": `Bearer ${apiKeyToUse}`,
@@ -426,6 +426,27 @@ export class OpenAIRealtimeSession {
         }
       }
       
+      // NEU: Prüfe ob Bestätigung erkannt wurde
+      const confirmationPatterns = [
+        /(?:ja das stimmt|ja genau|ja richtig|ja korrekt|alles richtig|alles korrekt)/i,
+        /(?:das ist richtig|das stimmt|bestätige|bestätigen|confirmed|confirm)/i,
+        /(?:ja bitte buchen|ja gerne|perfekt|passt so|einverstanden)/i
+      ];
+      
+      for (const pattern of confirmationPatterns) {
+        if (transcript.match(pattern)) {
+          // Nur Bestätigung setzen wenn alle Daten vorhanden sind
+          if (currentMetadata.customerName && 
+              currentMetadata.customerEmail && 
+              currentMetadata.preferredTime) {
+            currentMetadata.detailsConfirmed = true;
+            updated = true;
+            console.log(`[Session ${this.callId}] Customer confirmation detected - all details confirmed`);
+            break;
+          }
+        }
+      }
+      
       // Update call metadata if new information was extracted
       if (updated) {
         await storage.updateCall(this.callId, {
@@ -433,8 +454,24 @@ export class OpenAIRealtimeSession {
         });
         console.log(`[Session ${this.callId}] Updated call metadata with customer information`);
         
-        // Try to schedule appointment if we have enough data
-        await this.tryScheduleAppointment();
+        // Log aktueller Status
+        const status = [];
+        if (currentMetadata.customerName) status.push(`Name: ${currentMetadata.customerName}`);
+        if (currentMetadata.customerEmail) status.push(`E-Mail: ${currentMetadata.customerEmail}`);
+        if (currentMetadata.preferredTime) status.push(`Zeit: ${currentMetadata.preferredTime}`);
+        if (currentMetadata.detailsConfirmed) status.push('BESTÄTIGT');
+        
+        console.log(`[Session ${this.callId}] Status: ${status.join(' | ')}`);
+        
+        // Nur buchen wenn ALLE Daten da sind UND bestätigt
+        if (currentMetadata.customerName && 
+            currentMetadata.customerEmail && 
+            currentMetadata.preferredTime && 
+            currentMetadata.detailsConfirmed && 
+            !currentMetadata.appointmentScheduled) {
+          console.log(`[Session ${this.callId}] All details confirmed - scheduling appointment`);
+          await this.tryScheduleAppointment();
+        }
       }
     } catch (error) {
       console.error(`[Session ${this.callId}] Error extracting customer metadata:`, error);
@@ -453,7 +490,7 @@ export class OpenAIRealtimeSession {
     }
   }
 
-  // Automatically schedule appointment when sufficient data is collected
+  // Schedule appointment only when ALL data is collected AND confirmed
   private async tryScheduleAppointment() {
     try {
       // Check if we have collected enough customer data
@@ -465,14 +502,24 @@ export class OpenAIRealtimeSession {
       const customerEmail = metadata.customerEmail;
       const customerPhone = metadata.customerPhone || call.phoneNumber;
       const company = metadata.customerCompany;
+      const preferredTime = metadata.preferredTime;
+      const detailsConfirmed = metadata.detailsConfirmed;
       
-      // Only proceed if we have at least name and email
-      if (!customerName || !customerEmail) {
-        return; // Not enough data yet
+      // NEU: Erfordere ALLE Daten UND Bestätigung
+      if (!customerName || !customerEmail || !preferredTime || !detailsConfirmed) {
+        const missing = [];
+        if (!customerName) missing.push('Name');
+        if (!customerEmail) missing.push('E-Mail');
+        if (!preferredTime) missing.push('Terminzeit');
+        if (!detailsConfirmed) missing.push('Bestätigung');
+        
+        console.log(`[Session ${this.callId}] Cannot schedule - missing: ${missing.join(', ')}`);
+        return; // Not all required data or not confirmed
       }
       
       // Check if we already scheduled an appointment for this call
       if (metadata.appointmentScheduled) {
+        console.log(`[Session ${this.callId}] Appointment already scheduled for this call`);
         return; // Already scheduled
       }
       
@@ -491,23 +538,20 @@ export class OpenAIRealtimeSession {
         console.log(`[Session ${this.callId}] Attempting to schedule appointment for ${customerName} (${customerEmail})`);
         
         try {
-          // Parse preferred time from metadata or use default
-          let startTime: Date;
-          
-          if (metadata.preferredTime) {
-            // Use the helper function from appointment-scheduler
-            const { AppointmentScheduler } = await import("./services/appointment-scheduler.js");
-            const scheduler = new AppointmentScheduler();
-            // Use the natural time parser
-            startTime = (scheduler as any).parseNaturalTime(metadata.preferredTime);
-            console.log(`[Session ${this.callId}] Using extracted time: ${metadata.preferredTime} -> ${startTime.toLocaleString('de-DE')}`);
-          } else {
-            // Default to tomorrow at 10:00 AM if no time was extracted
-            startTime = new Date();
-            startTime.setDate(startTime.getDate() + 1);
-            startTime.setHours(10, 0, 0, 0);
-            console.log(`[Session ${this.callId}] No time extracted, using default: ${startTime.toLocaleString('de-DE')}`);
+          // NEU: Kein Fallback mehr - nur bestätigte Zeit verwenden
+          if (!metadata.preferredTime) {
+            console.error(`[Session ${this.callId}] No preferred time - this should not happen`);
+            return;
           }
+          
+          // Use the helper function from appointment-scheduler
+          const { AppointmentScheduler } = await import("./services/appointment-scheduler.js");
+          const scheduler = new AppointmentScheduler();
+          // Use the natural time parser
+          const startTime = (scheduler as any).parseNaturalTime(metadata.preferredTime);
+          console.log(`[Session ${this.callId}] Scheduling confirmed appointment: ${metadata.preferredTime} -> ${startTime.toLocaleString('de-DE')}`);
+          console.log(`[Session ${this.callId}] Customer: ${customerName} (${customerEmail})`);
+          console.log(`[Session ${this.callId}] All details have been confirmed by customer`);
           
           // 30 minute appointment
           const endTime = new Date(startTime);
