@@ -2603,8 +2603,8 @@ AGENT_CREATE:
       
       const { url, state } = await microsoftOAuth.getAuthorizationUrl(redirectUri);
       
-      // Store state in session for validation
-      req.session.oauthState = state;
+      // State is already stored in the OAuth service's internal Map
+      // No need for session storage
       
       res.json({ authUrl: url });
     } catch (error) {
@@ -2627,13 +2627,8 @@ AGENT_CREATE:
         return res.redirect("/settings?error=missing_params");
       }
       
-      // Validate state
-      if (state !== req.session.oauthState) {
-        return res.redirect("/settings?error=invalid_state");
-      }
-      
-      // Clear state from session
-      delete req.session.oauthState;
+      // State validation is handled by the OAuth service's exchangeCodeForTokens method
+      // No need for manual validation here
       
       const { microsoftOAuth } = await import("./services/microsoft-oauth.js");
       
@@ -2650,8 +2645,8 @@ AGENT_CREATE:
       );
       
       if (result.success) {
-        // Store success in session
-        req.session.microsoftEmail = result.email;
+        // Email is already stored in the OAuth service
+        // No need for session storage
         
         // Redirect to settings with success
         return res.redirect(`/settings?success=connected&email=${encodeURIComponent(result.email)}`);
@@ -2706,8 +2701,8 @@ AGENT_CREATE:
       const { microsoftOAuth } = await import("./services/microsoft-oauth.js");
       microsoftOAuth.disconnectUser(email);
       
-      // Clear session
-      delete req.session.microsoftEmail;
+      // Session storage is not used anymore
+      // User tokens are managed in the OAuth service
       
       res.json({ success: true, message: "Disconnected successfully" });
     } catch (error) {
