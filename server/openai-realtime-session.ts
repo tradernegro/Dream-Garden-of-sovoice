@@ -82,9 +82,9 @@ export class OpenAIRealtimeSession {
           temperature: agent.temperature ? agent.temperature / 10 : 0.8,
           turn_detection: {
             type: "server_vad",
-            threshold: 0.3,  // Reduziert von 0.5 - empfindlicher für Unterbrechungen
-            prefix_padding_ms: 100,  // Reduziert von 300ms - schnellere Reaktion
-            silence_duration_ms: 300  // Reduziert von 500ms - weniger Pause nötig
+            threshold: 0.5,  // Standard-Schwelle für Spracherkennung
+            prefix_padding_ms: 300,  // Audio vor Sprachbeginn beibehalten
+            silence_duration_ms: 800  // 800ms Pause nötig bevor KI antwortet - lässt Nutzer ausreden
           }
         }
       });
