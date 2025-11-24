@@ -165,6 +165,80 @@ export class AppointmentScheduler {
   }
 
   /**
+   * Parse natural language time input (German/English)
+   */
+  private parseNaturalTime(timeString: string): Date {
+    console.log(`[AppointmentScheduler] Parsing time: "${timeString}"`);
+    
+    const now = new Date();
+    let resultDate = new Date();
+    
+    // Normalize input
+    const normalized = timeString.toLowerCase().trim();
+    
+    // Check for tomorrow/morgen
+    if (normalized.includes('morgen') || normalized.includes('tomorrow')) {
+      resultDate.setDate(now.getDate() + 1);
+    }
+    // Check for today/heute
+    else if (normalized.includes('heute') || normalized.includes('today')) {
+      // Keep current date
+    }
+    // Check for specific weekdays
+    else if (normalized.match(/montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag|monday|tuesday|wednesday|thursday|friday|saturday|sunday/)) {
+      // TODO: Implement weekday parsing if needed
+      resultDate.setDate(now.getDate() + 1); // Default to tomorrow
+    }
+    else {
+      // Default to tomorrow if no day specified
+      resultDate.setDate(now.getDate() + 1);
+    }
+    
+    // Extract time from string
+    // Matches patterns like: "12:00", "12.00", "14:30", "9 uhr", "15 uhr 30"
+    const timePatterns = [
+      /(\d{1,2})[:\.](\d{2})/,  // 12:00 or 12.00
+      /(\d{1,2})\s*uhr\s*(\d{0,2})/i,  // 12 uhr or 12 uhr 30
+      /(\d{1,2})\s*:\s*(\d{2})/,  // 12 : 00 (with spaces)
+      /um\s*(\d{1,2})/,  // um 12
+    ];
+    
+    let hours = 10; // Default hour
+    let minutes = 0; // Default minutes
+    let timeFound = false;
+    
+    for (const pattern of timePatterns) {
+      const match = normalized.match(pattern);
+      if (match) {
+        hours = parseInt(match[1]);
+        minutes = match[2] ? parseInt(match[2]) : 0;
+        timeFound = true;
+        console.log(`[AppointmentScheduler] Extracted time: ${hours}:${minutes}`);
+        break;
+      }
+    }
+    
+    // If no time found, check for common terms
+    if (!timeFound) {
+      if (normalized.includes('vormittag') || normalized.includes('morning')) {
+        hours = 10;
+      } else if (normalized.includes('mittag') || normalized.includes('noon')) {
+        hours = 12;
+      } else if (normalized.includes('nachmittag') || normalized.includes('afternoon')) {
+        hours = 15;
+      } else if (normalized.includes('abend') || normalized.includes('evening')) {
+        hours = 18;
+      }
+    }
+    
+    // Set the time
+    resultDate.setHours(hours, minutes, 0, 0);
+    
+    console.log(`[AppointmentScheduler] Parsed result: ${resultDate.toLocaleString('de-DE')}`);
+    return resultDate;
+  }
+
+  /**
    * Create event invitee via Calendly API (requires paid plan)
    */
   private async createEventInvitee({
@@ -191,20 +265,17 @@ export class AppointmentScheduler {
     error?: string;
   }> {
     try {
-      // Parse preferred time or use current time + 1 day as default
+      // Parse preferred time with improved natural language understanding
       let startTime: Date;
       if (preferredTime) {
-        // Try to parse the preferred time
-        const parsedTime = new Date(preferredTime);
-        if (!isNaN(parsedTime.getTime())) {
-          startTime = parsedTime;
+        // First try to parse as ISO date
+        const isoDate = new Date(preferredTime);
+        if (!isNaN(isoDate.getTime()) && preferredTime.includes('T')) {
+          // Valid ISO date
+          startTime = isoDate;
         } else {
-          // If parsing fails, try to interpret it as a relative time
-          console.log(`[AppointmentScheduler] Could not parse preferred time: ${preferredTime}`);
-          // Default to tomorrow at 10 AM
-          startTime = new Date();
-          startTime.setDate(startTime.getDate() + 1);
-          startTime.setHours(10, 0, 0, 0);
+          // Use natural language parser
+          startTime = this.parseNaturalTime(preferredTime);
         }
       } else {
         // Default to tomorrow at 10 AM
@@ -213,14 +284,14 @@ export class AppointmentScheduler {
         startTime.setHours(10, 0, 0, 0);
       }
 
-      // Prepare the request body
+      // Prepare the request body with German timezone
       const requestBody = {
         event_type: eventTypeUri,
         start_time: startTime.toISOString(),
         invitee: {
           name: customerName,
           email: customerEmail,
-          timezone: "America/New_York", // Default timezone, could be made configurable
+          timezone: "Europe/Berlin", // German timezone
           ...(customerPhone && { text_reminder_number: customerPhone }),
         },
         ...(additionalNotes && {
