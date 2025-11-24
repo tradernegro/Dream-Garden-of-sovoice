@@ -158,7 +158,7 @@ class EmailService {
         };
       }
 
-      this.transporter = nodemailer.createTransporter(transportConfig);
+      this.transporter = nodemailer.createTransport(transportConfig);
       console.log('Email transporter created successfully');
     } catch (error) {
       console.error('Failed to create email transporter:', error);

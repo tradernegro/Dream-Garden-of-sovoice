@@ -63,3 +63,7 @@ integrations = ["javascript_mem_db:1.0.0", "twilio:1.0.0", "javascript_openai:1.
 [userenv.shared]
 OUTLOOK_EMAIL = "info@sovoice.ai"
 OUTLOOK_APP_PASSWORD = "FlorianErhantootheMoon1!"
+EMAIL_PROVIDER = "godaddy"
+GODADDY_EMAIL = "info@sovoice.ai"
+GODADDY_PASSWORD = "FlorianErhantootheMoon1!"
+GODADDY_REGION = "us"
