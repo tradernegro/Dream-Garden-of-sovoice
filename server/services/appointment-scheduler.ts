@@ -2,6 +2,7 @@ import { fetchCalendlyEventTypes } from "../calendly-client.js";
 import { emailService } from "./email-service.js";
 import { storage } from "../storage.js";
 import type { Agent } from "@shared/schema";
+import { toZonedTime, fromZonedTime, formatInTimeZone } from 'date-fns-tz';
 
 export class AppointmentScheduler {
   constructor() {
@@ -165,20 +166,27 @@ export class AppointmentScheduler {
   }
 
   /**
-   * Parse natural language time input (German/English)
+   * Parse natural language time input (German/English) with Europe/Berlin timezone
    */
   private parseNaturalTime(timeString: string): Date {
     console.log(`[AppointmentScheduler] Parsing time: "${timeString}"`);
     
-    const now = new Date();
-    let resultDate = new Date();
+    const BERLIN_TIMEZONE = 'Europe/Berlin';
+    
+    // Get current time in Berlin timezone
+    const nowInBerlin = toZonedTime(new Date(), BERLIN_TIMEZONE);
+    let resultDate = new Date(nowInBerlin);
     
     // Normalize input
     const normalized = timeString.toLowerCase().trim();
     
     // Check for tomorrow/morgen
     if (normalized.includes('morgen') || normalized.includes('tomorrow')) {
-      resultDate.setDate(now.getDate() + 1);
+      resultDate.setDate(resultDate.getDate() + 1);
+    }
+    // Check for übermorgen/day after tomorrow  
+    else if (normalized.includes('übermorgen') || normalized.includes('day after tomorrow')) {
+      resultDate.setDate(resultDate.getDate() + 2);
     }
     // Check for today/heute
     else if (normalized.includes('heute') || normalized.includes('today')) {
@@ -187,11 +195,11 @@ export class AppointmentScheduler {
     // Check for specific weekdays
     else if (normalized.match(/montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag|monday|tuesday|wednesday|thursday|friday|saturday|sunday/)) {
       // TODO: Implement weekday parsing if needed
-      resultDate.setDate(now.getDate() + 1); // Default to tomorrow
+      resultDate.setDate(resultDate.getDate() + 1); // Default to tomorrow
     }
     else {
       // Default to tomorrow if no day specified
-      resultDate.setDate(now.getDate() + 1);
+      resultDate.setDate(resultDate.getDate() + 1);
     }
     
     // Extract time from string
@@ -231,11 +239,16 @@ export class AppointmentScheduler {
       }
     }
     
-    // Set the time
+    // Set the time in Berlin timezone
     resultDate.setHours(hours, minutes, 0, 0);
     
-    console.log(`[AppointmentScheduler] Parsed result: ${resultDate.toLocaleString('de-DE')}`);
-    return resultDate;
+    // Convert from Berlin time to UTC for storage
+    const utcDate = fromZonedTime(resultDate, BERLIN_TIMEZONE);
+    
+    console.log(`[AppointmentScheduler] Parsed time in Berlin: ${formatInTimeZone(utcDate, BERLIN_TIMEZONE, 'dd.MM.yyyy HH:mm zzz')}`);
+    console.log(`[AppointmentScheduler] UTC time for storage: ${utcDate.toISOString()}`);
+    
+    return utcDate;
   }
 
   /**
