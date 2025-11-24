@@ -6,6 +6,18 @@ SoVoice AI is an AI-powered voice call assistant platform designed to automate c
 
 ## Recent Changes (November 2025)
 
+- **Secure Microsoft OAuth with External Window Authentication**: Implemented secure OAuth flow with CSRF protection
+  - OAuth authentication opens in external popup window (600x700px) for better user experience
+  - Added state parameter generation and validation to prevent CSRF attacks
+  - Single-use state tokens with 10-minute expiry and automatic cleanup
+  - Popup window monitoring with timeout handling and proper error state recovery
+  - Fixed token refresh to maintain authentication context without unauthorized fallbacks
+  - Admin consent flow requests permanent access with refresh tokens
+  - Automatic window closure with parent notification via postMessage
+  - Clear user feedback for popup blocking, timeouts, and cancellation scenarios
+
+## Previous Changes (November 2025)
+
 - **Enhanced Internal Calendar System with Green Visual Indicators**: Improved calendar UI with automatic appointment display
   - Calendar dates with appointments now show in light/living green color with check icon
   - Real-time WebSocket updates ensure appointments appear immediately when created during calls
