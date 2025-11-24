@@ -83,7 +83,16 @@ export default function CalendarPage() {
   // Create appointment mutation
   const createAppointmentMutation = useMutation({
     mutationFn: async (data: any) => {
-      const response = await apiRequest('POST', '/api/appointments', data);
+      const response = await fetch('/api/appointments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(error || 'Failed to create appointment');
+      }
       return response.json();
     },
     onSuccess: () => {
@@ -107,7 +116,16 @@ export default function CalendarPage() {
   // Update appointment mutation
   const updateAppointmentMutation = useMutation({
     mutationFn: async ({ id, ...data }: any) => {
-      const response = await apiRequest('PATCH', `/api/appointments/${id}`, data);
+      const response = await fetch(`/api/appointments/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(error || 'Failed to update appointment');
+      }
       return response.json();
     },
     onSuccess: () => {
@@ -124,7 +142,14 @@ export default function CalendarPage() {
   // Delete appointment mutation
   const deleteAppointmentMutation = useMutation({
     mutationFn: async (id: string) => {
-      const response = await apiRequest('DELETE', `/api/appointments/${id}`);
+      const response = await fetch(`/api/appointments/${id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(error || 'Failed to delete appointment');
+      }
       return response.json();
     },
     onSuccess: () => {

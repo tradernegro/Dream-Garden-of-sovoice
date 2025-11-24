@@ -34,6 +34,7 @@ export class MicrosoftAuthService {
   private targetMailbox: string | null = null;
   private authType: "delegated" | "application" | null = null;
   private userEmail: string | null = null;
+  private accountInfo: any = null;
 
   constructor() {
     this.msalClient = new ConfidentialClientApplication(msalConfig);
@@ -65,6 +66,8 @@ export class MicrosoftAuthService {
         this.authType = data.authType;
         this.userEmail = data.userEmail;
         this.targetMailbox = data.targetMailbox;
+        this.refreshToken = data.refreshToken;
+        this.accountInfo = data.accountInfo;
       }
     } catch (error) {
       console.error("Failed to load token from storage:", error);
@@ -80,7 +83,9 @@ export class MicrosoftAuthService {
         tokenExpiry: this.tokenExpiry?.toISOString(),
         authType: this.authType,
         userEmail: this.userEmail,
-        targetMailbox: this.targetMailbox
+        targetMailbox: this.targetMailbox,
+        refreshToken: this.refreshToken,
+        accountInfo: this.accountInfo
       };
       await storage.setSetting("microsoft_token_data", JSON.stringify(tokenData));
     } catch (error) {
@@ -148,8 +153,9 @@ export class MicrosoftAuthService {
       if (response && response.accessToken) {
         this.accessToken = response.accessToken;
         this.tokenExpiry = response.expiresOn || null;
-        // Note: MSAL handles refresh tokens internally
-        this.refreshToken = null;
+        // Store refresh token and account info for future use
+        this.refreshToken = (response as any).refreshToken || null;
+        this.accountInfo = response.account;
         this.authType = "delegated";
         
         // Extract user email from the token response
@@ -194,6 +200,10 @@ export class MicrosoftAuthService {
         this.targetMailbox = targetMailbox;
         this.authType = "application";
         this.userEmail = null;
+        
+        // Save token to persistent storage
+        await this.saveToStorage();
+        
         return response.accessToken;
       }
       throw new Error("No access token received");
@@ -224,27 +234,52 @@ export class MicrosoftAuthService {
       return this.accessToken;
     }
 
-    // Try to get token from refresh token (if available)
-    try {
-      const silentRequest = {
-        scopes: SCOPES,
-        account: await this.msalClient.getTokenCache().getAllAccounts().then(accounts => accounts[0]),
-      };
-
-      if (silentRequest.account) {
-        const response = await this.msalClient.acquireTokenSilent(silentRequest);
-        if (response && response.accessToken) {
-          this.accessToken = response.accessToken;
-          this.tokenExpiry = response.expiresOn || null;
-          
-          // Save refreshed token to storage
-          await this.saveToStorage();
-          
-          return response.accessToken;
-        }
+    // If token is expired, try different refresh strategies based on auth type
+    if (this.authType === "application") {
+      // For application auth, re-acquire using client credentials
+      try {
+        console.log("Token expired, refreshing using client credentials...");
+        const token = await this.acquireTokenByClientCredentials(this.targetMailbox || "info@sovoice.ai");
+        return token;
+      } catch (error) {
+        console.error("Failed to refresh token using client credentials:", error);
       }
-    } catch (error) {
-      console.error("Failed to refresh token silently:", error);
+    } else if (this.authType === "delegated") {
+      // For delegated auth, try silent refresh using cached account
+      try {
+        if (this.accountInfo) {
+          const silentRequest = {
+            scopes: SCOPES,
+            account: this.accountInfo,
+            forceRefresh: true,
+          };
+
+          const response = await this.msalClient.acquireTokenSilent(silentRequest);
+          if (response && response.accessToken) {
+            this.accessToken = response.accessToken;
+            this.tokenExpiry = response.expiresOn || null;
+            this.refreshToken = (response as any).refreshToken || this.refreshToken;
+            
+            // Save refreshed token to storage
+            await this.saveToStorage();
+            
+            return response.accessToken;
+          }
+        }
+      } catch (error) {
+        console.error("Failed to refresh delegated token silently:", error);
+      }
+    }
+    
+    // If all refresh attempts fail, try application auth as fallback
+    if (process.env.MICROSOFT_CLIENT_ID && process.env.MICROSOFT_CLIENT_SECRET && process.env.MICROSOFT_TENANT_ID) {
+      try {
+        console.log("Attempting application auth as fallback...");
+        const token = await this.acquireTokenByClientCredentials("info@sovoice.ai");
+        return token;
+      } catch (error) {
+        console.error("Failed application auth fallback:", error);
+      }
     }
 
     throw new Error("No valid access token available. User needs to re-authenticate.");
