@@ -6,15 +6,14 @@ SoVoice AI is an AI-powered voice call assistant platform designed to automate c
 
 ## Recent Changes (November 2025)
 
-- **Secure Microsoft OAuth with External Window Authentication**: Implemented secure OAuth flow with CSRF protection
-  - OAuth authentication opens in external popup window (600x700px) for better user experience
-  - Added state parameter generation and validation to prevent CSRF attacks
-  - Single-use state tokens with 10-minute expiry and automatic cleanup
-  - Popup window monitoring with timeout handling and proper error state recovery
-  - Fixed token refresh to maintain authentication context without unauthorized fallbacks
-  - Admin consent flow requests permanent access with refresh tokens
-  - Automatic window closure with parent notification via postMessage
-  - Clear user feedback for popup blocking, timeouts, and cancellation scenarios
+- **Email Integration via SMTP with App Passwords**: Implemented reliable email sending for appointment confirmations
+  - **OAuth Limitation**: Microsoft OAuth redirects are blocked by Replit environment (ERR_BLOCKED_BY_RESPONSE)
+  - **Working Solution**: SMTP authentication using app passwords (outlook-smtp-env.ts)
+  - Configured with OUTLOOK_EMAIL and OUTLOOK_APP_PASSWORD environment variables
+  - Automatic appointment confirmation emails sent from configured address
+  - Test functionality in Settings page with detailed error messages
+  - **Important**: SMTP authentication may need to be enabled by Microsoft 365 administrators
+  - Clear guidance for users when SMTP is disabled at tenant level
 
 ## Previous Changes (November 2025)
 
