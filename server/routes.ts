@@ -2545,6 +2545,145 @@ AGENT_CREATE:
       res.status(500).json({ error: error.message || "Failed to schedule appointment" });
     }
   });
+
+  // ==================== MICROSOFT OAUTH ENDPOINTS ====================
+  
+  // Get OAuth status
+  app.get("/api/microsoft/status", async (req: Request, res: Response) => {
+    try {
+      const { microsoftOAuth } = await import("./services/microsoft-oauth.js");
+      const status = microsoftOAuth.getConnectionStatus();
+      res.json(status);
+    } catch (error) {
+      console.error("Failed to get Microsoft OAuth status:", error);
+      res.status(500).json({ error: "Failed to get status" });
+    }
+  });
+
+  // Get OAuth authorization URL
+  app.get("/api/microsoft/auth-url", async (req: Request, res: Response) => {
+    try {
+      const { microsoftOAuth } = await import("./services/microsoft-oauth.js");
+      
+      // Get the redirect URI dynamically based on the request origin
+      const protocol = req.get('x-forwarded-proto') || req.protocol;
+      const host = req.get('host');
+      const redirectUri = `${protocol}://${host}/api/microsoft/callback`;
+      
+      const { url, state } = await microsoftOAuth.getAuthorizationUrl(redirectUri);
+      
+      // Store state in session for validation
+      req.session.oauthState = state;
+      
+      res.json({ authUrl: url });
+    } catch (error) {
+      console.error("Failed to generate auth URL:", error);
+      res.status(500).json({ error: error.message || "Failed to generate authorization URL" });
+    }
+  });
+
+  // OAuth callback endpoint
+  app.get("/api/microsoft/callback", async (req: Request, res: Response) => {
+    try {
+      const { code, state, error: oauthError } = req.query;
+      
+      if (oauthError) {
+        // Redirect to settings with error
+        return res.redirect(`/settings?error=oauth_failed&details=${encodeURIComponent(oauthError as string)}`);
+      }
+      
+      if (!code || !state) {
+        return res.redirect("/settings?error=missing_params");
+      }
+      
+      // Validate state
+      if (state !== req.session.oauthState) {
+        return res.redirect("/settings?error=invalid_state");
+      }
+      
+      // Clear state from session
+      delete req.session.oauthState;
+      
+      const { microsoftOAuth } = await import("./services/microsoft-oauth.js");
+      
+      // Get the redirect URI
+      const protocol = req.get('x-forwarded-proto') || req.protocol;
+      const host = req.get('host');
+      const redirectUri = `${protocol}://${host}/api/microsoft/callback`;
+      
+      // Exchange code for tokens
+      const result = await microsoftOAuth.exchangeCodeForTokens(
+        code as string,
+        state as string,
+        redirectUri
+      );
+      
+      if (result.success) {
+        // Store success in session
+        req.session.microsoftEmail = result.email;
+        
+        // Redirect to settings with success
+        return res.redirect(`/settings?success=connected&email=${encodeURIComponent(result.email)}`);
+      } else {
+        return res.redirect("/settings?error=token_exchange_failed");
+      }
+    } catch (error) {
+      console.error("OAuth callback error:", error);
+      return res.redirect(`/settings?error=callback_failed&details=${encodeURIComponent(error.message)}`);
+    }
+  });
+
+  // Send email via Microsoft Graph
+  app.post("/api/microsoft/send", async (req: Request, res: Response) => {
+    try {
+      const { from, to, subject, html, text } = req.body;
+      
+      if (!from || !to || !subject) {
+        return res.status(400).json({ error: "Missing required fields: from, to, subject" });
+      }
+      
+      const { microsoftOAuth } = await import("./services/microsoft-oauth.js");
+      
+      const success = await microsoftOAuth.sendEmail({
+        from,
+        to,
+        subject,
+        html,
+        text,
+      });
+      
+      if (success) {
+        res.json({ success: true, message: "Email sent successfully" });
+      } else {
+        res.status(500).json({ error: "Failed to send email" });
+      }
+    } catch (error) {
+      console.error("Failed to send email:", error);
+      res.status(500).json({ error: error.message || "Failed to send email" });
+    }
+  });
+
+  // Disconnect/logout
+  app.post("/api/microsoft/disconnect", async (req: Request, res: Response) => {
+    try {
+      const { email } = req.body;
+      
+      if (!email) {
+        return res.status(400).json({ error: "Email required" });
+      }
+      
+      const { microsoftOAuth } = await import("./services/microsoft-oauth.js");
+      microsoftOAuth.disconnectUser(email);
+      
+      // Clear session
+      delete req.session.microsoftEmail;
+      
+      res.json({ success: true, message: "Disconnected successfully" });
+    } catch (error) {
+      console.error("Failed to disconnect:", error);
+      res.status(500).json({ error: "Failed to disconnect" });
+    }
+  });
   
   // ==================== EMAIL API ENDPOINTS ====================
   
