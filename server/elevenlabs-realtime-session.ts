@@ -611,68 +611,8 @@ export class ElevenLabsRealtimeSession {
           
           console.log(`[ElevenLabs Session ${this.callId}] Appointment created successfully:`, appointment.id);
           
-          // Send confirmation email
-          try {
-            const { MicrosoftAuthService } = await import("./services/microsoft-auth.js");
-            const msAuthService = new MicrosoftAuthService();
-            const isConfigured = await msAuthService.isConfigured();
-            
-            if (isConfigured) {
-              const appointmentTime = startTime.toLocaleString('de-DE', {
-                weekday: 'long',
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
-                timeZone: 'Europe/Berlin'
-              });
-              
-              await msAuthService.sendEmail({
-                to: [customerEmail],
-                subject: `Terminbestätigung - ${appointmentTime}`,
-                body: `
-                  <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                    <h2 style="color: #333;">Terminbestätigung</h2>
-                    
-                    <p>Sehr geehrte/r ${customerName},</p>
-                    
-                    <p>Ihr Termin wurde erfolgreich bestätigt.</p>
-                    
-                    <div style="background-color: #f5f5f5; padding: 20px; border-radius: 5px; margin: 20px 0;">
-                      <h3 style="color: #333; margin-top: 0;">Termindetails:</h3>
-                      <p><strong>Datum & Zeit:</strong> ${appointmentTime}</p>
-                      <p><strong>Art:</strong> Beratungsgespräch</p>
-                      <p><strong>Medium:</strong> Telefon</p>
-                      ${customerPhone ? `<p><strong>Ihre Telefonnummer:</strong> ${customerPhone}</p>` : ''}
-                      ${company ? `<p><strong>Firma:</strong> ${company}</p>` : ''}
-                    </div>
-                    
-                    <p>Wir werden Sie zur vereinbarten Zeit unter der angegebenen Telefonnummer kontaktieren.</p>
-                    
-                    <p>Bei Fragen oder zur Terminänderung können Sie uns jederzeit kontaktieren.</p>
-                    
-                    <p>Mit freundlichen Grüßen<br>
-                    Ihr SoVoice AI Team</p>
-                  </div>
-                `,
-                isHtml: true
-              });
-              
-              console.log(`[ElevenLabs Session ${this.callId}] Confirmation email sent to ${customerEmail}`);
-              
-              // Update appointment metadata
-              await storage.updateAppointment(appointment.id, {
-                metadata: {
-                  ...appointment.metadata,
-                  emailSent: true
-                }
-              });
-            }
-          } catch (emailError) {
-            console.error(`[ElevenLabs Session ${this.callId}] Failed to send confirmation email:`, emailError);
-            // Don't fail the whole process if email fails
-          }
+          // Email confirmation temporarily disabled - will be re-implemented
+          console.log(`[ElevenLabs Session ${this.callId}] Email confirmation is temporarily disabled`);
           
           // Mark appointment as scheduled in call metadata
           await storage.updateCall(this.callId, {
