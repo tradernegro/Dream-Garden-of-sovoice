@@ -47,6 +47,16 @@ export default function Settings() {
     refetchInterval: 30000, // Refresh every 30 seconds
   });
 
+  // Fetch Outlook SMTP status as fallback
+  const { data: outlookStatus } = useQuery<{
+    configured: boolean;
+    connected: boolean;
+    email: string | null;
+  }>({
+    queryKey: ["/api/outlook/status"],
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
+
   // Handle Microsoft OAuth login
   const handleMicrosoftLogin = async () => {
     setIsLoggingIn(true);
@@ -267,7 +277,7 @@ export default function Settings() {
                   <CardDescription>Automatischer E-Mail-Versand für Terminbestätigungen</CardDescription>
                 </div>
               </div>
-              {microsoftStatus?.connected ? (
+              {outlookStatus?.configured ? (
                 <Badge variant="secondary" className="bg-green-500/10 text-green-700 dark:text-green-400">
                   Verbunden
                 </Badge>
@@ -284,60 +294,71 @@ export default function Settings() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-4">
-              {microsoftStatus?.connected ? (
+              {outlookStatus?.configured ? (
                 <>
                   <div className="space-y-2">
-                    <Label>Verbundenes Konto</Label>
+                    <Label>Konfiguriertes Konto</Label>
                     <p className="text-sm text-muted-foreground">
-                      {microsoftStatus.email || "info@sovoice.ai"}
+                      {outlookStatus.email || "info@sovoice.ai"}
+                    </p>
+                  </div>
+                  <Separator />
+                  <div className="space-y-2">
+                    <Label>Verbindungstyp</Label>
+                    <p className="text-sm text-muted-foreground">
+                      SMTP mit App-Passwort (empfohlen für Replit)
                     </p>
                   </div>
                   <Separator />
                   <div className="space-y-2">
                     <Label>Status</Label>
                     <p className="text-sm text-muted-foreground">
-                      E-Mail-Versand ist aktiv. Terminbestätigungen werden automatisch versendet.
+                      ✅ E-Mail-Versand ist aktiv. Terminbestätigungen werden automatisch versendet.
                     </p>
                   </div>
                   <Button 
                     variant="outline" 
-                    onClick={() => {
-                      // Disconnect functionality could be added here
-                      toast({
-                        title: "Trennen",
-                        description: "Diese Funktion ist in Entwicklung",
-                      });
+                    onClick={async () => {
+                      try {
+                        const response = await fetch("/api/outlook/test", { method: "POST" });
+                        if (response.ok) {
+                          toast({
+                            title: "Test erfolgreich",
+                            description: "Test-E-Mail wurde erfolgreich versendet!",
+                          });
+                        } else {
+                          throw new Error("Test fehlgeschlagen");
+                        }
+                      } catch (error) {
+                        toast({
+                          title: "Fehler",
+                          description: "Konnte Test-E-Mail nicht senden",
+                          variant: "destructive",
+                        });
+                      }
                     }}
-                    data-testid="button-disconnect-outlook"
-                  >
-                    <LogOut className="h-4 w-4 mr-2" />
-                    Trennen
-                  </Button>
-                </>
-              ) : microsoftStatus?.configured ? (
-                <>
-                  <div className="space-y-2">
-                    <Label>Mit Microsoft verbinden</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Melden Sie sich mit Ihrem Microsoft-Konto an, um E-Mails zu versenden
-                    </p>
-                  </div>
-                  <Button 
-                    onClick={handleMicrosoftLogin}
-                    disabled={isLoggingIn}
-                    data-testid="button-connect-outlook"
-                    className="w-full sm:w-auto"
+                    data-testid="button-test-outlook"
                   >
                     <Mail className="h-4 w-4 mr-2" />
-                    {isLoggingIn ? "Verbinde..." : "Mit Microsoft anmelden"}
+                    Verbindung testen
                   </Button>
                 </>
               ) : (
                 <>
                   <Alert className="border-orange-500/20 bg-orange-500/5">
-                    <AlertCircle className="h-4 w-4 text-orange-600" />
+                    <Info className="h-4 w-4 text-orange-600" />
                     <AlertDescription className="text-sm">
-                      Microsoft OAuth ist nicht konfiguriert. Bitte setzen Sie MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET und MICROSOFT_TENANT_ID Umgebungsvariablen.
+                      <div className="space-y-3">
+                        <p className="font-medium">E-Mail-Versand ist nicht konfiguriert</p>
+                        <p>Fügen Sie die folgenden Umgebungsvariablen hinzu:</p>
+                        <div className="mt-2 p-2 bg-muted rounded-md font-mono text-xs">
+                          OUTLOOK_EMAIL=ihre-email@outlook.com<br/>
+                          OUTLOOK_APP_PASSWORD=ihr-app-kennwort
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Hinweis: OAuth funktioniert nicht in Replit. Verwenden Sie App-Passwörter für zuverlässigen E-Mail-Versand.
+                        </p>
+                      </div>
                     </AlertDescription>
                   </Alert>
                 </>

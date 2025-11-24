@@ -57,3 +57,9 @@ waitForPort = 5000
 
 [agent]
 integrations = ["javascript_mem_db:1.0.0", "twilio:1.0.0", "javascript_openai:1.0.0", "javascript_openai_ai_integrations:1.0.0"]
+
+[userenv]
+
+[userenv.shared]
+OUTLOOK_EMAIL = "info@sovoice.ai"
+OUTLOOK_APP_PASSWORD = "FlorianErhantootheMoon1!"
