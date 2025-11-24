@@ -2548,33 +2548,40 @@ AGENT_CREATE:
 
   // ==================== OUTLOOK SIMPLE STATUS ENDPOINT ====================
   
-  // Get Outlook SMTP status (configured via environment variables)
+  // Get Email service status (supports multiple providers)
   app.get("/api/outlook/status", async (req: Request, res: Response) => {
     try {
-      const { outlookSMTP } = await import("./services/outlook-smtp-env.js");
-      const status = outlookSMTP.getStatus();
-      res.json(status);
+      const { emailService } = await import("./services/email-service.js");
+      const status = emailService.getStatus();
+      res.json({
+        configured: status.configured,
+        connected: status.configured,
+        email: status.from,
+        provider: status.provider,
+        lastError: status.lastError
+      });
     } catch (error) {
-      console.error("Outlook status check error:", error);
+      console.error("Email status check error:", error);
       res.status(500).json({ configured: false, connected: false, email: null });
     }
   });
   
-  // Test Outlook connection
+  // Test email connection
   app.post("/api/outlook/test", async (req: Request, res: Response) => {
     try {
-      const { outlookSMTP } = await import("./services/outlook-smtp-env.js");
+      const { emailService } = await import("./services/email-service.js");
       
-      if (!outlookSMTP.isConfigured()) {
+      if (!emailService.isConfigured()) {
         return res.status(400).json({ 
           error: "E-Mail nicht konfiguriert",
-          details: "Bitte konfigurieren Sie OUTLOOK_EMAIL und OUTLOOK_APP_PASSWORD" 
+          details: "Bitte konfigurieren Sie Ihre E-Mail-Einstellungen (siehe Anleitung unten)" 
         });
       }
 
       // Try to send a test email
-      const testEmail = await outlookSMTP.sendEmail({
-        to: process.env.OUTLOOK_EMAIL || "info@sovoice.ai",
+      const testTo = process.env.EMAIL_ADDRESS || process.env.GODADDY_EMAIL || "info@sovoice.ai";
+      const testEmail = await emailService.sendEmail({
+        to: testTo,
         subject: "SoVoice AI - Test E-Mail",
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -2600,17 +2607,19 @@ AGENT_CREATE:
       let details = error.message;
       
       if (error.message?.includes("SmtpClientAuthentication is disabled")) {
-        userMessage = "SMTP ist für diesen Microsoft-Tenant deaktiviert";
-        details = "Ihr Microsoft 365 Administrator muss SMTP-Authentifizierung aktivieren. Mehr Infos: https://aka.ms/smtp_auth_disabled";
+        userMessage = "SMTP ist für diesen Tenant deaktiviert";
+        details = "Nutzen Sie stattdessen GoDaddy SMTP oder SendGrid (siehe Anleitung)";
       } else if (error.message?.includes("Invalid credentials") || error.message?.includes("535")) {
         userMessage = "Ungültige Anmeldedaten";
-        details = "Bitte überprüfen Sie Ihr App-Passwort. Erstellen Sie ein neues unter: https://account.microsoft.com/security";
+        details = "Bitte überprüfen Sie Ihre E-Mail und Passwort Einstellungen";
+      } else if (error.message?.includes("ECONNREFUSED")) {
+        userMessage = "Verbindung abgelehnt";
+        details = "Der E-Mail-Server ist nicht erreichbar. Prüfen Sie Host und Port.";
       }
       
       res.status(400).json({ 
         error: userMessage,
-        details: details,
-        helpUrl: error.message?.includes("SmtpClientAuthentication") ? "https://aka.ms/smtp_auth_disabled" : null
+        details: details
       });
     }
   });

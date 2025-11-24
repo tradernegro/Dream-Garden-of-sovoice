@@ -1,5 +1,5 @@
 import { fetchCalendlyEventTypes } from "../calendly-client.js";
-import { outlookSMTP } from "./outlook-smtp-env.js";
+import { emailService } from "./email-service.js";
 import { storage } from "../storage.js";
 import type { Agent } from "@shared/schema";
 
@@ -319,10 +319,10 @@ export class AppointmentScheduler {
     isConfirmed?: boolean;
   }) {
     try {
-      // Check if Outlook SMTP is configured
-      const status = outlookSMTP.getStatus();
-      if (!status.configured || !status.email) {
-        console.log("Outlook SMTP not configured, skipping email notification");
+      // Check if email service is configured
+      const status = emailService.getStatus();
+      if (!status.configured || !status.from) {
+        console.log("Email service not configured, skipping email notification");
         return;
       }
 
@@ -396,8 +396,8 @@ export class AppointmentScheduler {
         `;
       }
 
-      // Send email using Outlook SMTP
-      const success = await outlookSMTP.sendEmail({
+      // Send email using email service
+      const success = await emailService.sendEmail({
         to: customerEmail,
         subject,
         html: emailBody,
@@ -448,10 +448,10 @@ export class AppointmentScheduler {
         </div>
       `;
 
-      // Check if Outlook SMTP is configured before sending
-      const status = outlookSMTP.getStatus();
-      if (status.configured && status.email) {
-        await outlookSMTP.sendEmail({
+      // Check if email service is configured before sending
+      const status = emailService.getStatus();
+      if (status.configured && status.from) {
+        await emailService.sendEmail({
           to: invitee.email,
           subject: "Appointment Confirmed - SoVoice AI",
           html: emailBody,

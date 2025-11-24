@@ -304,9 +304,9 @@ export default function Settings() {
                   </div>
                   <Separator />
                   <div className="space-y-2">
-                    <Label>Verbindungstyp</Label>
-                    <p className="text-sm text-muted-foreground">
-                      SMTP mit App-Passwort (empfohlen für Replit)
+                    <Label>E-Mail Provider</Label>
+                    <p className="text-sm text-muted-foreground capitalize">
+                      {(outlookStatus as any)?.provider || "SMTP"}
                     </p>
                   </div>
                   <Separator />
@@ -381,13 +381,46 @@ export default function Settings() {
                     <AlertDescription className="text-sm">
                       <div className="space-y-3">
                         <p className="font-medium">E-Mail-Versand ist nicht konfiguriert</p>
-                        <p>Fügen Sie die folgenden Umgebungsvariablen hinzu:</p>
-                        <div className="mt-2 p-2 bg-muted rounded-md font-mono text-xs">
-                          OUTLOOK_EMAIL=ihre-email@outlook.com<br/>
-                          OUTLOOK_APP_PASSWORD=ihr-app-kennwort
+                        <p>Wählen Sie eine der folgenden Optionen:</p>
+                        
+                        <div className="space-y-4 mt-3">
+                          {/* GoDaddy Option */}
+                          <div className="border-l-4 border-green-500 pl-3">
+                            <p className="font-semibold text-green-700 dark:text-green-400">Option 1: GoDaddy (Empfohlen)</p>
+                            <div className="mt-2 p-2 bg-muted rounded-md font-mono text-xs">
+                              EMAIL_PROVIDER=godaddy<br/>
+                              GODADDY_EMAIL=info@sovoice.ai<br/>
+                              GODADDY_PASSWORD=ihr-email-passwort<br/>
+                              GODADDY_REGION=us (oder europe/asia)
+                            </div>
+                          </div>
+                          
+                          {/* SendGrid Option */}
+                          <div className="border-l-4 border-blue-500 pl-3">
+                            <p className="font-semibold text-blue-700 dark:text-blue-400">Option 2: SendGrid (Kostenlos bis 100 E-Mails/Tag)</p>
+                            <div className="mt-2 p-2 bg-muted rounded-md font-mono text-xs">
+                              EMAIL_PROVIDER=sendgrid<br/>
+                              SENDGRID_API_KEY=ihr-api-key<br/>
+                              EMAIL_ADDRESS=info@sovoice.ai
+                            </div>
+                          </div>
+                          
+                          {/* Generic SMTP Option */}
+                          <div className="border-l-4 border-gray-500 pl-3">
+                            <p className="font-semibold text-gray-700 dark:text-gray-400">Option 3: Anderer SMTP-Server</p>
+                            <div className="mt-2 p-2 bg-muted rounded-md font-mono text-xs">
+                              EMAIL_PROVIDER=smtp<br/>
+                              SMTP_HOST=mail.beispiel.com<br/>
+                              SMTP_PORT=587<br/>
+                              SMTP_USER=ihre-email@beispiel.com<br/>
+                              SMTP_PASSWORD=ihr-passwort
+                            </div>
+                          </div>
                         </div>
-                        <p className="text-xs text-muted-foreground">
-                          Hinweis: OAuth funktioniert nicht in Replit. Verwenden Sie App-Passwörter für zuverlässigen E-Mail-Versand.
+                        
+                        <p className="text-xs text-muted-foreground mt-3">
+                          <strong>Tipp:</strong> GoDaddy funktioniert sofort, wenn Sie dort Ihre E-Mail haben. 
+                          SendGrid ist kostenlos bis 100 E-Mails pro Tag.
                         </p>
                       </div>
                     </AlertDescription>
