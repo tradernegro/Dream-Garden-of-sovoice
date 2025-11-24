@@ -37,46 +37,65 @@ export default function Settings() {
     queryKey: ["/api/keys"],
   });
 
-  // Fetch Outlook SMTP status
-  const { data: outlookStatus } = useQuery<{
+  // Fetch Microsoft OAuth status (prioritize OAuth over SMTP)
+  const { data: microsoftStatus } = useQuery<{
     configured: boolean;
     connected: boolean;
     email: string | null;
   }>({
-    queryKey: ["/api/outlook/status"],
+    queryKey: ["/api/microsoft/status"],
     refetchInterval: 30000, // Refresh every 30 seconds
   });
 
-  // Test Outlook connection
-  const testOutlookConnection = async () => {
+  // Handle Microsoft OAuth login
+  const handleMicrosoftLogin = async () => {
     setIsLoggingIn(true);
     try {
-      const response = await apiRequest("POST", "/api/outlook/test", {});
+      const response = await fetch("/api/microsoft/auth-url");
       if (response.ok) {
-        toast({
-          title: "✅ Connection successful!",
-          description: "Your Outlook account is configured correctly.",
-        });
-        // Refetch status
-        queryClient.invalidateQueries({ queryKey: ["/api/outlook/status"] });
+        const { authUrl } = await response.json();
+        // Redirect to Microsoft OAuth
+        window.location.href = authUrl;
       } else {
-        const error = await response.json();
-        toast({
-          title: "❌ Connection failed",
-          description: error.error || "Failed to connect to Outlook",
-          variant: "destructive",
-        });
+        throw new Error("Failed to get authorization URL");
       }
     } catch (error) {
-      console.error("Failed to test connection:", error);
+      console.error("Failed to connect:", error);
       toast({
-        title: "Test failed",
-        description: "Could not test Outlook connection",
+        title: "Connection error",
+        description: "Failed to initiate Microsoft connection",
         variant: "destructive",
       });
+      setIsLoggingIn(false);
     }
-    setIsLoggingIn(false);
   };
+
+  // Check for OAuth callback parameters
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    
+    if (params.get("success") === "connected") {
+      const email = params.get("email");
+      toast({
+        title: "✅ Microsoft Outlook connected!",
+        description: `Successfully connected to ${email}`,
+      });
+      // Clean up URL
+      window.history.replaceState({}, document.title, "/settings");
+      // Refetch status
+      queryClient.invalidateQueries({ queryKey: ["/api/microsoft/status"] });
+    } else if (params.get("error")) {
+      const errorType = params.get("error");
+      const details = params.get("details");
+      toast({
+        title: "❌ Connection failed",
+        description: details || `Failed to connect to Microsoft Outlook (${errorType})`,
+        variant: "destructive",
+      });
+      // Clean up URL
+      window.history.replaceState({}, document.title, "/settings");
+    }
+  }, [toast]);
 
   // Create API key
   const createKeyMutation = useMutation({
@@ -248,12 +267,16 @@ export default function Settings() {
                   <CardDescription>Automatischer E-Mail-Versand für Terminbestätigungen</CardDescription>
                 </div>
               </div>
-              {outlookStatus?.configured ? (
+              {microsoftStatus?.connected ? (
                 <Badge variant="secondary" className="bg-green-500/10 text-green-700 dark:text-green-400">
-                  Konfiguriert
+                  Verbunden
+                </Badge>
+              ) : microsoftStatus?.configured ? (
+                <Badge variant="secondary" className="bg-orange-500/10 text-orange-700 dark:text-orange-400">
+                  Nicht verbunden
                 </Badge>
               ) : (
-                <Badge variant="secondary" className="bg-orange-500/10 text-orange-700 dark:text-orange-400">
+                <Badge variant="secondary" className="bg-red-500/10 text-red-700 dark:text-red-400">
                   Nicht konfiguriert
                 </Badge>
               )}
@@ -261,12 +284,12 @@ export default function Settings() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-4">
-              {outlookStatus?.configured ? (
+              {microsoftStatus?.connected ? (
                 <>
                   <div className="space-y-2">
-                    <Label>Konfiguriertes Konto</Label>
+                    <Label>Verbundenes Konto</Label>
                     <p className="text-sm text-muted-foreground">
-                      {outlookStatus.email}
+                      {microsoftStatus.email || "info@sovoice.ai"}
                     </p>
                   </div>
                   <Separator />
@@ -278,37 +301,43 @@ export default function Settings() {
                   </div>
                   <Button 
                     variant="outline" 
-                    onClick={testOutlookConnection}
-                    disabled={isLoggingIn}
-                    data-testid="button-test-outlook"
+                    onClick={() => {
+                      // Disconnect functionality could be added here
+                      toast({
+                        title: "Trennen",
+                        description: "Diese Funktion ist in Entwicklung",
+                      });
+                    }}
+                    data-testid="button-disconnect-outlook"
                   >
-                    {isLoggingIn ? "Teste..." : "Verbindung testen"}
+                    <LogOut className="h-4 w-4 mr-2" />
+                    Trennen
+                  </Button>
+                </>
+              ) : microsoftStatus?.configured ? (
+                <>
+                  <div className="space-y-2">
+                    <Label>Mit Microsoft verbinden</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Melden Sie sich mit Ihrem Microsoft-Konto an, um E-Mails zu versenden
+                    </p>
+                  </div>
+                  <Button 
+                    onClick={handleMicrosoftLogin}
+                    disabled={isLoggingIn}
+                    data-testid="button-connect-outlook"
+                    className="w-full sm:w-auto"
+                  >
+                    <Mail className="h-4 w-4 mr-2" />
+                    {isLoggingIn ? "Verbinde..." : "Mit Microsoft anmelden"}
                   </Button>
                 </>
               ) : (
                 <>
                   <Alert className="border-orange-500/20 bg-orange-500/5">
-                    <Info className="h-4 w-4 text-orange-600" />
+                    <AlertCircle className="h-4 w-4 text-orange-600" />
                     <AlertDescription className="text-sm">
-                      <div className="space-y-3">
-                        <p className="font-medium">So richten Sie Outlook ein:</p>
-                        <ol className="list-decimal list-inside space-y-2 ml-2">
-                          <li>Gehen Sie zu <a href="https://account.microsoft.com/security" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Microsoft Sicherheit</a></li>
-                          <li>Scrollen Sie zu "Erweiterte Sicherheitsoptionen"</li>
-                          <li>Klicken Sie auf "App-Kennwörter"</li>
-                          <li>Erstellen Sie ein neues App-Kennwort für "SoVoice AI"</li>
-                          <li>Fügen Sie diese Umgebungsvariablen hinzu:
-                            <div className="mt-2 p-2 bg-muted rounded-md font-mono text-xs">
-                              OUTLOOK_EMAIL=ihre-email@outlook.com<br/>
-                              OUTLOOK_APP_PASSWORD=ihr-app-kennwort
-                            </div>
-                          </li>
-                          <li>Starten Sie die Anwendung neu</li>
-                        </ol>
-                        <p className="text-xs mt-3 text-muted-foreground">
-                          Hinweis: Verwenden Sie ein App-Kennwort, nicht Ihr normales Passwort. App-Kennwörter sind sicherer und können jederzeit widerrufen werden.
-                        </p>
-                      </div>
+                      Microsoft OAuth ist nicht konfiguriert. Bitte setzen Sie MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET und MICROSOFT_TENANT_ID Umgebungsvariablen.
                     </AlertDescription>
                   </Alert>
                 </>
