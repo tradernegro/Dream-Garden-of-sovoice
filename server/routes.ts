@@ -2609,7 +2609,8 @@ AGENT_CREATE:
       const protocol = domain.includes('localhost') ? 'http' : 'https';
       const redirectUri = `${protocol}://${domain}/api/microsoft/callback`;
       
-      const authUrl = await microsoftAuth.getAuthorizationUrl(redirectUri);
+      // Always use admin consent for permanent access
+      const authUrl = await microsoftAuth.getAuthorizationUrlWithAdminConsent(redirectUri);
       res.json({ authUrl });
     } catch (error) {
       console.error("Failed to get auth URL:", error);
@@ -2672,11 +2673,60 @@ AGENT_CREATE:
         // Don't fail the whole OAuth process if sync fails
       }
       
-      // Redirect to emails page with success
-      res.redirect("/emails?connected=true&synced=true");
+      // Close the popup window and send success message to parent
+      res.send(`
+        <html>
+          <head>
+            <style>
+              body { font-family: system-ui; text-align: center; padding: 50px; }
+              h2 { color: #10b981; }
+              .error h2 { color: #ef4444; }
+            </style>
+          </head>
+          <body>
+            <h2>✅ Outlook erfolgreich verbunden!</h2>
+            <p>Sie können dieses Fenster nun schließen.</p>
+            <p style="color: #666; margin-top: 20px;">Das Fenster schließt sich automatisch...</p>
+            <script>
+              if (window.opener) {
+                window.opener.postMessage({ type: 'outlook-connected', success: true }, '*');
+                setTimeout(() => window.close(), 2000);
+              } else {
+                setTimeout(() => {
+                  window.location.href = '/settings?outlook=connected';
+                }, 2000);
+              }
+            </script>
+          </body>
+        </html>
+      `);
     } catch (error) {
       console.error("OAuth callback error:", error);
-      res.redirect("/emails?error=auth_failed");
+      res.send(`
+        <html>
+          <head>
+            <style>
+              body { font-family: system-ui; text-align: center; padding: 50px; }
+              h2 { color: #ef4444; }
+            </style>
+          </head>
+          <body class="error">
+            <h2>❌ Fehler bei der Outlook-Verbindung</h2>
+            <p>${error.message || 'Ein unbekannter Fehler ist aufgetreten.'}</p>
+            <p style="color: #666; margin-top: 20px;">Bitte versuchen Sie es erneut.</p>
+            <script>
+              if (window.opener) {
+                window.opener.postMessage({ type: 'outlook-connected', success: false, error: '${error.message || "Verbindung fehlgeschlagen"}' }, '*');
+                setTimeout(() => window.close(), 3000);
+              } else {
+                setTimeout(() => {
+                  window.location.href = '/settings?outlook=error';
+                }, 3000);
+              }
+            </script>
+          </body>
+        </html>
+      `);
     }
   });
   
