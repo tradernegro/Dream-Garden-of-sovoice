@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Phone, Key, Database, Webhook, Plus, Trash2, Copy, Eye, EyeOff, AlertCircle } from "lucide-react";
+import { Phone, Key, Database, Webhook, Plus, Trash2, Copy, Eye, EyeOff, AlertCircle, Mail, ExternalLink } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -28,11 +28,55 @@ export default function Settings() {
   const [newKeyName, setNewKeyName] = useState("");
   const [generatedKey, setGeneratedKey] = useState<string | null>(null);
   const [showKey, setShowKey] = useState(false);
+  const [outlookConnected, setOutlookConnected] = useState(false);
+  const [outlookEmail, setOutlookEmail] = useState<string | null>(null);
+  const [connectingOutlook, setConnectingOutlook] = useState(false);
 
   // Fetch API keys
   const { data: apiKeys = [], isLoading } = useQuery<ApiKey[]>({
     queryKey: ["/api/keys"],
   });
+
+  // Fetch Microsoft Outlook status
+  const { data: outlookStatus } = useQuery({
+    queryKey: ["/api/microsoft/status"],
+    refetchInterval: 30000, // Check every 30 seconds
+  });
+
+  // Update Outlook status when data changes
+  useEffect(() => {
+    if (outlookStatus) {
+      setOutlookConnected(outlookStatus.connected);
+      setOutlookEmail(outlookStatus.email);
+    }
+  }, [outlookStatus]);
+
+  // Listen for OAuth popup messages
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'outlook-connected') {
+        setConnectingOutlook(false);
+        if (event.data.success) {
+          toast({
+            title: "✅ Outlook erfolgreich verbunden!",
+            description: "E-Mail-Versand von info@sovoice.ai ist jetzt aktiv.",
+          });
+          // Refresh status
+          queryClient.invalidateQueries({ queryKey: ["/api/microsoft/status"] });
+          setOutlookConnected(true);
+        } else {
+          toast({
+            title: "❌ Fehler bei der Outlook-Verbindung",
+            description: event.data.error || "Bitte versuchen Sie es erneut.",
+            variant: "destructive",
+          });
+        }
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [toast]);
 
   // Create API key
   const createKeyMutation = useMutation({
@@ -105,6 +149,35 @@ export default function Settings() {
     setGeneratedKey(null);
     setShowKey(false);
     setNewKeyName("");
+  };
+
+  const handleOutlookConnect = () => {
+    setConnectingOutlook(true);
+    
+    // Get the current domain dynamically
+    const currentDomain = window.location.origin;
+    
+    // Open OAuth popup window
+    const width = 600;
+    const height = 700;
+    const left = (window.innerWidth - width) / 2;
+    const top = (window.innerHeight - height) / 2;
+    
+    const popup = window.open(
+      `${currentDomain}/api/microsoft/auth`,
+      'outlook-auth',
+      `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,resizable=yes`
+    );
+    
+    // Check if popup was blocked
+    if (!popup || popup.closed) {
+      setConnectingOutlook(false);
+      toast({
+        title: "Popup blockiert",
+        description: "Bitte erlauben Sie Popups für diese Website und versuchen Sie es erneut.",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
@@ -187,6 +260,85 @@ export default function Settings() {
                   gpt-4-realtime (Voice)
                 </p>
               </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Microsoft Outlook Integration */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10">
+                  <Mail className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <CardTitle>Microsoft Outlook</CardTitle>
+                  <CardDescription>E-Mail-Versand von info@sovoice.ai</CardDescription>
+                </div>
+              </div>
+              {outlookConnected ? (
+                <Badge variant="secondary" className="bg-green-500/10 text-green-700 dark:text-green-400">
+                  Verbunden
+                </Badge>
+              ) : (
+                <Badge variant="secondary" className="bg-orange-500/10 text-orange-700 dark:text-orange-400">
+                  Nicht verbunden
+                </Badge>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4">
+              {outlookConnected ? (
+                <>
+                  <div className="space-y-2">
+                    <Label>E-Mail-Konto</Label>
+                    <p className="text-sm text-muted-foreground">
+                      {outlookEmail || "info@sovoice.ai"}
+                    </p>
+                  </div>
+                  <Separator />
+                  <div className="space-y-2">
+                    <Label>Status</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Automatischer E-Mail-Versand ist aktiv. Terminbestätigungen werden automatisch an Kunden gesendet.
+                    </p>
+                  </div>
+                  <Button 
+                    variant="outline" 
+                    onClick={handleOutlookConnect}
+                    data-testid="button-reconnect-outlook"
+                  >
+                    <ExternalLink className="h-4 w-4 mr-2" />
+                    Neu verbinden
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <Label>Verbindung erforderlich</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Verbinden Sie Ihr Microsoft Outlook Konto, um automatische E-Mail-Bestätigungen an Kunden zu senden.
+                    </p>
+                  </div>
+                  <Button 
+                    onClick={handleOutlookConnect}
+                    disabled={connectingOutlook}
+                    data-testid="button-connect-outlook"
+                    className="w-full sm:w-auto"
+                  >
+                    <Mail className="h-4 w-4 mr-2" />
+                    {connectingOutlook ? "Verbinde..." : "Mit Outlook verbinden"}
+                  </Button>
+                  <Alert className="border-orange-500/20 bg-orange-500/5">
+                    <AlertCircle className="h-4 w-4 text-orange-600" />
+                    <AlertDescription className="text-sm">
+                      Hinweis: Die Anmeldung öffnet sich in einem neuen Fenster. Bitte erlauben Sie Popups für diese Website.
+                    </AlertDescription>
+                  </Alert>
+                </>
+              )}
             </div>
           </CardContent>
         </Card>
