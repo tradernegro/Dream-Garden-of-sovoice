@@ -611,6 +611,37 @@ export class ElevenLabsRealtimeSession {
           
           console.log(`[ElevenLabs Session ${this.callId}] Appointment created successfully:`, appointment.id);
           
+          // Sync to Google Calendar if connected
+          try {
+            const { googleCalendarService } = await import('./services/google-calendar-service.js');
+            await googleCalendarService.initializeOAuth();
+            
+            const googleEventId = await googleCalendarService.createEvent({
+              title: appointment.title,
+              customerName: appointment.customerName,
+              customerEmail: appointment.customerEmail || undefined,
+              startTime: appointment.startTime,
+              endTime: appointment.endTime,
+              description: appointment.description || undefined,
+              location: appointment.location || undefined,
+            });
+            
+            if (googleEventId) {
+              console.log(`[ElevenLabs Session ${this.callId}] Appointment synced to Google Calendar:`, googleEventId);
+              
+              // Update appointment with Google Calendar event ID
+              await storage.updateAppointment(appointment.id, {
+                metadata: {
+                  ...(appointment.metadata as any || {}),
+                  googleEventId,
+                },
+              });
+            }
+          } catch (error) {
+            console.log(`[ElevenLabs Session ${this.callId}] Google Calendar sync skipped or failed:`, error);
+            // Don't fail the appointment creation if Google sync fails
+          }
+          
           // Email confirmation temporarily disabled - will be re-implemented
           console.log(`[ElevenLabs Session ${this.callId}] Email confirmation is temporarily disabled`);
           

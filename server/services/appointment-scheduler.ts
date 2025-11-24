@@ -1,5 +1,6 @@
 import { fetchCalendlyEventTypes } from "../calendly-client.js";
 import { emailService } from "./email-service.js";
+import { googleCalendarService } from "./google-calendar-service.js";
 import { storage } from "../storage.js";
 import type { Agent } from "@shared/schema";
 import { toZonedTime, fromZonedTime, formatInTimeZone } from 'date-fns-tz';
@@ -575,14 +576,13 @@ export class AppointmentScheduler {
         </div>
       `;
 
-      // Check if Microsoft auth is configured before sending
-      const isConfigured = await this.msAuthService.isConfigured();
-      if (isConfigured) {
-        await this.msAuthService.sendEmail({
-          to: [invitee.email],
+      // Check if email service is configured before sending
+      const status = emailService.getStatus();
+      if (status.configured && status.from) {
+        await emailService.sendEmail({
+          to: invitee.email,
           subject: "Appointment Cancelled - SoVoice AI",
-          body: emailBody,
-          isHtml: true,
+          html: emailBody,
         });
         
         console.log(`Cancellation email sent to ${invitee.email}`);

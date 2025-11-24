@@ -1002,6 +1002,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Broadcast real-time update
       broadcastToClients("appointment:created", appointment);
       
+      // Sync to Google Calendar if connected
+      try {
+        const { googleCalendarService } = await import('./services/google-calendar-service.js');
+        await googleCalendarService.initializeOAuth();
+        
+        const googleEventId = await googleCalendarService.createEvent({
+          title: appointment.title,
+          customerName: appointment.customerName,
+          customerEmail: appointment.customerEmail || undefined,
+          startTime: appointment.startTime,
+          endTime: appointment.endTime,
+          description: appointment.description || undefined,
+          location: appointment.location || undefined,
+        });
+        
+        if (googleEventId) {
+          console.log(`[API] Appointment synced to Google Calendar:`, googleEventId);
+          
+          // Update appointment with Google Calendar event ID
+          await storage.updateAppointment(appointment.id, {
+            metadata: {
+              ...(appointment.metadata as any || {}),
+              googleEventId,
+            },
+          });
+        }
+      } catch (error) {
+        console.log(`[API] Google Calendar sync skipped or failed:`, error);
+        // Don't fail the appointment creation if Google sync fails
+      }
+      
       // Email confirmation temporarily disabled - Microsoft OAuth implementation being replaced
       // TODO: Implement new email sending mechanism
       
