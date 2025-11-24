@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Phone, Key, Database, Webhook, Plus, Trash2, Copy, Eye, EyeOff, AlertCircle, Mail, ExternalLink } from "lucide-react";
+import { Phone, Key, Database, Webhook, Plus, Trash2, Copy, Eye, EyeOff, AlertCircle, Mail, ExternalLink, LogOut } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -28,11 +28,99 @@ export default function Settings() {
   const [newKeyName, setNewKeyName] = useState("");
   const [generatedKey, setGeneratedKey] = useState<string | null>(null);
   const [showKey, setShowKey] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
 
   // Fetch API keys
   const { data: apiKeys = [], isLoading } = useQuery<ApiKey[]>({
     queryKey: ["/api/keys"],
   });
+
+  // Fetch Microsoft OAuth status
+  const { data: microsoftStatus } = useQuery<{
+    connected: boolean;
+    email: string | null;
+    configured: boolean;
+  }>({
+    queryKey: ["/api/microsoft/status"],
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
+
+  // Check URL parameters for OAuth callback status
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    
+    if (params.get("success") === "connected") {
+      const email = params.get("email");
+      toast({
+        title: "✅ Microsoft Outlook connected!",
+        description: `Successfully connected to ${email}`,
+      });
+      // Clean up URL
+      window.history.replaceState({}, document.title, "/settings");
+      // Refetch status
+      queryClient.invalidateQueries({ queryKey: ["/api/microsoft/status"] });
+    } else if (params.get("error")) {
+      const errorType = params.get("error");
+      const details = params.get("details");
+      toast({
+        title: "❌ Connection failed",
+        description: details || `Failed to connect to Microsoft Outlook (${errorType})`,
+        variant: "destructive",
+      });
+      // Clean up URL
+      window.history.replaceState({}, document.title, "/settings");
+    }
+  }, [toast]);
+
+  // Handle Microsoft OAuth login
+  const handleMicrosoftLogin = async () => {
+    setIsConnecting(true);
+    try {
+      const response = await fetch("/api/microsoft/auth-url");
+      if (response.ok) {
+        const { authUrl } = await response.json();
+        // Redirect to Microsoft OAuth
+        window.location.href = authUrl;
+      } else {
+        throw new Error("Failed to get authorization URL");
+      }
+    } catch (error) {
+      console.error("Failed to connect:", error);
+      toast({
+        title: "Connection error",
+        description: "Failed to initiate Microsoft connection. Please ensure Microsoft OAuth is configured.",
+        variant: "destructive",
+      });
+      setIsConnecting(false);
+    }
+  };
+
+  // Handle Microsoft logout
+  const handleMicrosoftLogout = async () => {
+    if (!microsoftStatus?.email) return;
+    
+    try {
+      const response = await apiRequest("POST", "/api/microsoft/disconnect", {
+        email: microsoftStatus.email,
+      });
+      
+      if (response.ok) {
+        toast({
+          title: "Disconnected",
+          description: "Microsoft Outlook has been disconnected",
+        });
+        // Refetch status
+        queryClient.invalidateQueries({ queryKey: ["/api/microsoft/status"] });
+      }
+    } catch (error) {
+      console.error("Failed to disconnect:", error);
+      toast({
+        title: "Error",
+        description: "Failed to disconnect Microsoft Outlook",
+        variant: "destructive",
+      });
+    }
+  };
 
   // Create API key
   const createKeyMutation = useMutation({
@@ -187,6 +275,92 @@ export default function Settings() {
                   gpt-4-realtime (Voice)
                 </p>
               </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Microsoft Outlook Integration */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10">
+                  <Mail className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <CardTitle>Microsoft Outlook</CardTitle>
+                  <CardDescription>Send emails from info@sovoice.ai</CardDescription>
+                </div>
+              </div>
+              {microsoftStatus?.connected ? (
+                <Badge variant="secondary" className="bg-green-500/10 text-green-700 dark:text-green-400">
+                  Connected
+                </Badge>
+              ) : microsoftStatus?.configured ? (
+                <Badge variant="secondary" className="bg-orange-500/10 text-orange-700 dark:text-orange-400">
+                  Not connected
+                </Badge>
+              ) : (
+                <Badge variant="secondary" className="bg-red-500/10 text-red-700 dark:text-red-400">
+                  Not configured
+                </Badge>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4">
+              {microsoftStatus?.connected ? (
+                <>
+                  <div className="space-y-2">
+                    <Label>Connected Account</Label>
+                    <p className="text-sm text-muted-foreground">
+                      {microsoftStatus.email || "info@sovoice.ai"}
+                    </p>
+                  </div>
+                  <Separator />
+                  <div className="space-y-2">
+                    <Label>Status</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Email sending is active. Appointment confirmations will be sent automatically.
+                    </p>
+                  </div>
+                  <Button 
+                    variant="outline" 
+                    onClick={handleMicrosoftLogout}
+                    data-testid="button-disconnect-outlook"
+                  >
+                    <LogOut className="h-4 w-4 mr-2" />
+                    Disconnect
+                  </Button>
+                </>
+              ) : microsoftStatus?.configured ? (
+                <>
+                  <div className="space-y-2">
+                    <Label>Connect to Microsoft</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Sign in with your Microsoft account to send emails from info@sovoice.ai
+                    </p>
+                  </div>
+                  <Button 
+                    onClick={handleMicrosoftLogin}
+                    disabled={isConnecting}
+                    data-testid="button-connect-outlook"
+                    className="w-full sm:w-auto"
+                  >
+                    <Mail className="h-4 w-4 mr-2" />
+                    {isConnecting ? "Connecting..." : "Connect with Microsoft"}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Alert className="border-orange-500/20 bg-orange-500/5">
+                    <AlertCircle className="h-4 w-4 text-orange-600" />
+                    <AlertDescription className="text-sm">
+                      Microsoft OAuth is not configured. Please set MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET environment variables to enable email sending.
+                    </AlertDescription>
+                  </Alert>
+                </>
+              )}
             </div>
           </CardContent>
         </Card>

@@ -1,13 +1,11 @@
 import { fetchCalendlyEventTypes } from "../calendly-client.js";
-// import { MicrosoftAuthService } from "./microsoft-auth.js"; // Temporarily disabled - being replaced
+import { microsoftOAuth } from "./microsoft-oauth.js";
 import { storage } from "../storage.js";
 import type { Agent } from "@shared/schema";
 
 export class AppointmentScheduler {
-  // private msAuthService: MicrosoftAuthService; // Temporarily disabled
-
   constructor() {
-    // this.msAuthService = new MicrosoftAuthService(); // Temporarily disabled
+    // Constructor can be empty
   }
 
   /**
@@ -321,9 +319,17 @@ export class AppointmentScheduler {
     isConfirmed?: boolean;
   }) {
     try {
-      // Microsoft OAuth temporarily disabled - email notification skipped
-      console.log("Microsoft OAuth temporarily disabled, skipping email notification");
-      return;
+      // Check if Microsoft OAuth is configured and connected
+      const status = microsoftOAuth.getConnectionStatus();
+      if (!status.configured) {
+        console.log("Microsoft OAuth not configured, skipping email notification");
+        return;
+      }
+      
+      if (!status.connected || !status.email) {
+        console.log("Microsoft OAuth not connected, skipping email notification");
+        return;
+      }
 
       let emailBody: string;
       let subject: string;
@@ -395,11 +401,12 @@ export class AppointmentScheduler {
         `;
       }
 
-      await this.msAuthService.sendEmail({
-        to: [customerEmail],
+      // Send email using the new OAuth service
+      const success = await microsoftOAuth.sendEmail({
+        from: status.email!, // Use the connected email account
+        to: customerEmail,
         subject,
-        body: emailBody,
-        isHtml: true,
+        html: emailBody,
       });
 
       console.log(`Appointment email sent to ${customerEmail} (${isConfirmed ? 'confirmed' : 'scheduling link'})`);
@@ -447,14 +454,14 @@ export class AppointmentScheduler {
         </div>
       `;
 
-      // Check if Microsoft auth is configured before sending
-      const isConfigured = await this.msAuthService.isConfigured();
-      if (isConfigured) {
-        await this.msAuthService.sendEmail({
-          to: [invitee.email],
+      // Check if Microsoft OAuth is configured before sending
+      const status = microsoftOAuth.getConnectionStatus();
+      if (status.connected && status.email) {
+        await microsoftOAuth.sendEmail({
+          from: status.email,
+          to: invitee.email,
           subject: "Appointment Confirmed - SoVoice AI",
-          body: emailBody,
-          isHtml: true,
+          html: emailBody,
         });
         
         console.log(`Confirmation email sent to ${invitee.email} for scheduled appointment`);
