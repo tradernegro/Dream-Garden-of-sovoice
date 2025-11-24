@@ -84,6 +84,50 @@ export type InsertAgent = z.infer<typeof insertAgentSchema>;
 export type UpdateAgent = z.infer<typeof updateAgentSchema>;
 export type Agent = typeof agents.$inferSelect;
 
+// Appointments table (internal calendar system)
+export const appointments = pgTable("appointments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  title: text("title").notNull(),
+  description: text("description"),
+  customerName: text("customer_name").notNull(),
+  customerEmail: text("customer_email").notNull(),
+  customerPhone: text("customer_phone"),
+  customerCompany: text("customer_company"),
+  callId: varchar("call_id").references(() => calls.id, { onDelete: "set null" }), // Reference to the call that created this appointment
+  agentId: varchar("agent_id").references(() => agents.id, { onDelete: "set null" }), // Agent assigned to this appointment
+  startTime: timestamp("start_time").notNull(),
+  endTime: timestamp("end_time").notNull(),
+  status: text("status").notNull().default("scheduled"), // scheduled, confirmed, completed, cancelled, no-show
+  type: text("type").default("meeting"), // meeting, call, demo, consultation
+  location: text("location"), // Phone, Zoom, In-Person, etc.
+  notes: text("notes"),
+  reminder: integer("reminder").default(1), // 1 = send reminder, 0 = no reminder
+  reminderSent: integer("reminder_sent").default(0), // 1 = reminder was sent
+  metadata: jsonb("metadata").$type<{
+    zoomLink?: string;
+    phoneNumber?: string;
+    address?: string;
+    internalNotes?: string;
+    createdByCall?: boolean; // true if created automatically during a call
+    emailSent?: boolean;
+    emailError?: string;
+  }>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertAppointmentSchema = createInsertSchema(appointments).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const updateAppointmentSchema = insertAppointmentSchema.partial();
+
+export type InsertAppointment = z.infer<typeof insertAppointmentSchema>;
+export type UpdateAppointment = z.infer<typeof updateAppointmentSchema>;
+export type Appointment = typeof appointments.$inferSelect;
+
 // Phone Numbers table (for Twilio phone number management)
 export const phoneNumbers = pgTable("phone_numbers", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

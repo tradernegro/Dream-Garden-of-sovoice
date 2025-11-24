@@ -1,6 +1,5 @@
 import WebSocket from "ws";
 import { storage } from "./storage";
-import { AppointmentScheduler } from "./services/appointment-scheduler";
 
 export interface RealtimeSessionConfig {
   callId: string;
@@ -415,7 +414,7 @@ export class OpenAIRealtimeSession {
       const metadata = (call.metadata || {}) as any;
       const customerName = metadata.customerName;
       const customerEmail = metadata.customerEmail;
-      const customerPhone = metadata.customerPhone;
+      const customerPhone = metadata.customerPhone || call.phoneNumber;
       const company = metadata.customerCompany;
       
       // Only proceed if we have at least name and email
@@ -440,49 +439,146 @@ export class OpenAIRealtimeSession {
       
       // Check if agent is the SOVOICE system agent
       if (agent.id === "sovoice-system-agent") {
-        console.log(`[Session ${this.callId}] Attempting to schedule Calendly appointment for ${customerName} (${customerEmail})`);
-        
-        // Create appointment scheduler
-        const appointmentScheduler = new AppointmentScheduler();
-        
-        // Build additional notes from collected data
-        const additionalNotes = [
-          company ? `Firma: ${company}` : null,
-          customerPhone ? `Telefon: ${customerPhone}` : null,
-          `Anruf-ID: ${this.callId}`,
-          `Automatisch erstellt während Telefonat`,
-        ].filter(Boolean).join('\n');
+        console.log(`[Session ${this.callId}] Attempting to schedule appointment for ${customerName} (${customerEmail})`);
         
         try {
-          // Try to schedule appointment
-          const result = await appointmentScheduler.scheduleAppointment({
-            agent,
-            customerEmail,
+          // Default appointment time: tomorrow at 12:00
+          const startTime = new Date();
+          startTime.setDate(startTime.getDate() + 1);
+          startTime.setHours(12, 0, 0, 0);
+          
+          // 30 minute appointment
+          const endTime = new Date(startTime);
+          endTime.setMinutes(endTime.getMinutes() + 30);
+          
+          // Check availability
+          const isAvailable = await storage.checkAvailability(startTime, endTime);
+          
+          if (!isAvailable) {
+            // Try to find next available slot (try next 5 business days)
+            let foundSlot = false;
+            for (let i = 1; i <= 5; i++) {
+              startTime.setDate(startTime.getDate() + 1);
+              // Skip weekends
+              if (startTime.getDay() === 0) startTime.setDate(startTime.getDate() + 1);
+              if (startTime.getDay() === 6) startTime.setDate(startTime.getDate() + 2);
+              
+              endTime.setTime(startTime.getTime());
+              endTime.setMinutes(endTime.getMinutes() + 30);
+              
+              const available = await storage.checkAvailability(startTime, endTime);
+              if (available) {
+                foundSlot = true;
+                break;
+              }
+            }
+            
+            if (!foundSlot) {
+              console.log(`[Session ${this.callId}] No available slots found in the next 5 days`);
+              return;
+            }
+          }
+          
+          // Create appointment in our internal system
+          const appointment = await storage.createAppointment({
+            title: `Beratungsgespräch mit ${customerName}`,
+            description: `Automatisch erstellt während Telefonat\nAnruf-ID: ${this.callId}`,
             customerName,
+            customerEmail,
             customerPhone,
-            additionalNotes,
-            preferredTime: undefined, // Use default (tomorrow 10 AM)
+            customerCompany: company || undefined,
+            callId: this.callId,
+            agentId: this.agentId,
+            startTime,
+            endTime,
+            status: "scheduled",
+            type: "consultation",
+            location: "Telefon",
+            notes: company ? `Firma: ${company}` : undefined,
+            reminder: 1,
+            metadata: {
+              createdByCall: true,
+              phoneNumber: call.phoneNumber,
+            }
           });
           
-          if (result.success) {
-            console.log(`[Session ${this.callId}] Appointment scheduled successfully:`, result);
+          console.log(`[Session ${this.callId}] Appointment created successfully:`, appointment.id);
+          
+          // Send confirmation email
+          try {
+            const { MicrosoftAuthService } = await import("./services/microsoft-auth.js");
+            const msAuthService = new MicrosoftAuthService();
+            const isConfigured = await msAuthService.isConfigured();
             
-            // Mark appointment as scheduled in metadata
-            await storage.updateCall(this.callId, {
-              metadata: {
-                ...metadata,
-                appointmentScheduled: true,
-                appointmentDetails: result,
-              },
-            });
-            
-            // Note: We can't send system messages directly to affect the conversation
-            // The assistant will continue with its normal flow
-          } else {
-            console.log(`[Session ${this.callId}] Could not schedule appointment:`, result.message);
+            if (isConfigured) {
+              const appointmentTime = startTime.toLocaleString('de-DE', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                timeZone: 'Europe/Berlin'
+              });
+              
+              await msAuthService.sendEmail({
+                to: customerEmail,
+                subject: `Terminbestätigung - ${appointmentTime}`,
+                html: `
+                  <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                    <h2 style="color: #333;">Terminbestätigung</h2>
+                    
+                    <p>Sehr geehrte/r ${customerName},</p>
+                    
+                    <p>Ihr Termin wurde erfolgreich bestätigt.</p>
+                    
+                    <div style="background-color: #f5f5f5; padding: 20px; border-radius: 5px; margin: 20px 0;">
+                      <h3 style="color: #333; margin-top: 0;">Termindetails:</h3>
+                      <p><strong>Datum & Zeit:</strong> ${appointmentTime}</p>
+                      <p><strong>Art:</strong> Beratungsgespräch</p>
+                      <p><strong>Medium:</strong> Telefon</p>
+                      ${customerPhone ? `<p><strong>Ihre Telefonnummer:</strong> ${customerPhone}</p>` : ''}
+                      ${company ? `<p><strong>Firma:</strong> ${company}</p>` : ''}
+                    </div>
+                    
+                    <p>Wir werden Sie zur vereinbarten Zeit unter der angegebenen Telefonnummer kontaktieren.</p>
+                    
+                    <p>Bei Fragen oder zur Terminänderung können Sie uns jederzeit kontaktieren.</p>
+                    
+                    <p>Mit freundlichen Grüßen<br>
+                    Ihr SoVoice AI Team</p>
+                  </div>
+                `,
+                text: `Terminbestätigung\n\nSehr geehrte/r ${customerName},\n\nIhr Termin wurde erfolgreich bestätigt.\n\nTermin: ${appointmentTime}\nArt: Beratungsgespräch\nMedium: Telefon\n${customerPhone ? `Ihre Telefonnummer: ${customerPhone}\n` : ''}${company ? `Firma: ${company}\n` : ''}\n\nWir werden Sie zur vereinbarten Zeit kontaktieren.\n\nMit freundlichen Grüßen\nIhr SoVoice AI Team`
+              });
+              
+              console.log(`[Session ${this.callId}] Confirmation email sent to ${customerEmail}`);
+              
+              // Update appointment metadata
+              await storage.updateAppointment(appointment.id, {
+                metadata: {
+                  ...appointment.metadata,
+                  emailSent: true
+                }
+              });
+            }
+          } catch (emailError) {
+            console.error(`[Session ${this.callId}] Failed to send confirmation email:`, emailError);
+            // Don't fail the whole process if email fails
           }
+          
+          // Mark appointment as scheduled in call metadata
+          await storage.updateCall(this.callId, {
+            metadata: {
+              ...metadata,
+              appointmentScheduled: true,
+              appointmentId: appointment.id,
+              appointmentTime: startTime.toISOString(),
+            },
+          });
+          
         } catch (error) {
-          console.error(`[Session ${this.callId}] Error scheduling appointment:`, error);
+          console.error(`[Session ${this.callId}] Error creating appointment:`, error);
           // Don't expose technical errors to customer
         }
       }

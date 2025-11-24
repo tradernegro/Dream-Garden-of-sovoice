@@ -1,716 +1,467 @@
-import { useState, useEffect } from "react";
-import { Calendar, Clock, Link2, Plus, RefreshCw, Calendar as CalendarIcon, Settings, CheckCircle2, XCircle, Key } from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Skeleton } from "@/components/ui/skeleton";
-import { useToast } from "@/hooks/use-toast";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Calendar as CalendarIcon, Clock, Mail, Phone, Building, Plus, Edit, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addMonths, subMonths, isSameMonth, isSameDay, isToday, addDays } from "date-fns";
+import { de } from "date-fns/locale";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-
-interface CalendlyEvent {
-  id: string;
-  name: string;
-  start_time: string;
-  end_time: string;
-  event_type: string;
-  location?: {
-    type: string;
-    location?: string;
-  };
-  invitees?: Array<{
-    email: string;
-    name: string;
-    status: string;
-  }>;
-  status: string;
-  meeting_notes?: string;
-  uri: string;
-}
-
-interface CalendlyEventType {
-  id: string;
-  name: string;
-  description?: string;
-  duration_minutes: number;
-  scheduling_url: string;
-  active: boolean;
-  color: string;
-}
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
+import { Badge } from "@/components/ui/badge";
+import type { Appointment } from "@shared/schema";
 
 export default function CalendarPage() {
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [editingAppointment, setEditingAppointment] = useState<Appointment | null>(null);
   const { toast } = useToast();
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [selectedEvent, setSelectedEvent] = useState<CalendlyEvent | null>(null);
-  const [showManualTokenDialog, setShowManualTokenDialog] = useState(false);
-  const [manualToken, setManualToken] = useState("");
 
-  // Fetch Calendly connection status
-  const { data: connectionStatus, isLoading: isLoadingStatus, refetch: refetchStatus } = useQuery({
-    queryKey: ["/api/calendly/status"],
+  // Fetch appointments for current month
+  const monthStart = startOfMonth(currentDate);
+  const monthEnd = endOfMonth(currentDate);
+  
+  const { data: appointments = [], isLoading } = useQuery<Appointment[]>({
+    queryKey: ['/api/appointments', monthStart.toISOString(), monthEnd.toISOString()],
     queryFn: async () => {
-      const response = await fetch("/api/calendly/status");
+      const response = await fetch(`/api/appointments?startDate=${monthStart.toISOString()}&endDate=${monthEnd.toISOString()}`);
+      if (!response.ok) throw new Error('Failed to fetch appointments');
       return response.json();
     },
-    refetchInterval: isConnecting ? 2000 : false, // Poll every 2 seconds when connecting, otherwise don't poll
+    refetchInterval: 30000, // Refresh every 30 seconds
   });
 
-  // Fetch scheduled events
-  const { data: events, isLoading: isLoadingEvents, refetch: refetchEvents } = useQuery({
-    queryKey: ["/api/calendly/events"],
-    queryFn: async () => {
-      const response = await fetch("/api/calendly/events");
-      if (!response.ok) throw new Error("Failed to fetch events");
-      return response.json();
-    },
-    enabled: connectionStatus?.connected,
-  });
+  // Get appointments for selected date
+  const selectedDateAppointments = selectedDate
+    ? appointments.filter(apt => isSameDay(new Date(apt.startTime), selectedDate))
+    : [];
 
-  // Fetch event types
-  const { data: eventTypes, isLoading: isLoadingEventTypes } = useQuery({
-    queryKey: ["/api/calendly/event-types"],
-    queryFn: async () => {
-      const response = await fetch("/api/calendly/event-types");
-      if (!response.ok) throw new Error("Failed to fetch event types");
-      return response.json();
-    },
-    enabled: connectionStatus?.connected,
-  });
-
-  const [authUrl, setAuthUrl] = useState<string | null>(null);
-
-  // Connect to Calendly OAuth
-  const connectMutation = useMutation({
-    mutationFn: async () => {
-      setIsConnecting(true);
-      const response = await apiRequest("POST", "/api/calendly/connect", {});
-      return response.json();
-    },
-    onSuccess: (data) => {
-      if (data.authUrl) {
-        // Try to open in popup first
-        const authWindow = window.open(data.authUrl, "calendly-oauth", "width=600,height=700");
-        
-        if (!authWindow || authWindow.closed || typeof authWindow.closed === 'undefined') {
-          // Popup was blocked, show direct link instead
-          setAuthUrl(data.authUrl);
-          toast({
-            title: "Popup Blocked",
-            description: "Click the link below to connect your Calendly account",
-          });
-        } else {
-          // Monitor the popup window
-          const checkInterval = setInterval(() => {
-            if (authWindow && authWindow.closed) {
-              clearInterval(checkInterval);
-              setIsConnecting(false);
-              setAuthUrl(null);
-              // Refetch status after window closes
-              setTimeout(() => {
-                refetchStatus();
-              }, 1000);
-            }
-          }, 500);
-        }
-      }
-    },
-    onError: (error) => {
-      setIsConnecting(false);
-      setAuthUrl(null);
-      toast({
-        title: "Connection failed",
-        description: "Failed to connect to Calendly. Please try again.",
-        variant: "destructive",
+  // Create appointment mutation
+  const createAppointmentMutation = useMutation({
+    mutationFn: async (data: any) => {
+      return apiRequest('/api/appointments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
       });
-    },
-  });
-
-  // Disconnect from Calendly
-  const disconnectMutation = useMutation({
-    mutationFn: async () => {
-      const response = await apiRequest("POST", "/api/calendly/disconnect", {});
-      return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/calendly/status"] });
+      queryClient.invalidateQueries({ queryKey: ['/api/appointments'] });
+      setIsDialogOpen(false);
+      setEditingAppointment(null);
       toast({
-        title: "Disconnected",
-        description: "Successfully disconnected from Calendly.",
+        title: "Termin erstellt",
+        description: "Der Termin wurde erfolgreich erstellt und eine Bestätigung wurde gesendet.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Fehler",
+        description: error.message || "Der Termin konnte nicht erstellt werden.",
+        variant: "destructive",
       });
     },
   });
 
-  // Save manual token
-  const saveManualTokenMutation = useMutation({
-    mutationFn: async (token: string) => {
-      const response = await apiRequest("POST", "/api/calendly/manual-token", { token });
-      return response.json();
+  // Update appointment mutation
+  const updateAppointmentMutation = useMutation({
+    mutationFn: async ({ id, ...data }: any) => {
+      return apiRequest(`/api/appointments/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
     },
     onSuccess: () => {
-      setShowManualTokenDialog(false);
-      setManualToken("");
-      setIsConnecting(false);
-      setAuthUrl(null);
-      queryClient.invalidateQueries({ queryKey: ["/api/calendly/status"] });
+      queryClient.invalidateQueries({ queryKey: ['/api/appointments'] });
+      setIsDialogOpen(false);
+      setEditingAppointment(null);
       toast({
-        title: "Connected Successfully",
-        description: "Your Calendly account has been connected using the manual token.",
-      });
-    },
-    onError: (error) => {
-      toast({
-        title: "Connection Failed",
-        description: "Invalid token or unable to connect. Please check your token and try again.",
-        variant: "destructive",
+        title: "Termin aktualisiert",
+        description: "Der Termin wurde erfolgreich aktualisiert.",
       });
     },
   });
 
-  // Check for OAuth callback on mount
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('connected') === 'true') {
-      toast({
-        title: "Connected Successfully",
-        description: "Your Calendly account has been connected.",
+  // Delete appointment mutation
+  const deleteAppointmentMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return apiRequest(`/api/appointments/${id}`, {
+        method: 'DELETE',
       });
-      // Clear the URL params
-      window.history.replaceState({}, '', window.location.pathname);
-      setIsConnecting(false);
-      refetchStatus();
-    } else if (urlParams.get('error') === 'connection_failed') {
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/appointments'] });
       toast({
-        title: "Connection Failed",
-        description: "Failed to connect to Calendly. Please try again.",
-        variant: "destructive",
+        title: "Termin gelöscht",
+        description: "Der Termin wurde erfolgreich gelöscht.",
       });
-      // Clear the URL params
-      window.history.replaceState({}, '', window.location.pathname);
-      setIsConnecting(false);
+    },
+  });
+
+  // Generate calendar days
+  const generateCalendarDays = () => {
+    const start = startOfWeek(monthStart, { locale: de });
+    const end = endOfWeek(monthEnd, { locale: de });
+    const days = [];
+    let day = start;
+
+    while (day <= end) {
+      days.push(day);
+      day = addDays(day, 1);
     }
-  }, []);
 
-  // Listen for real-time Calendly webhook events via WebSocket
-  useEffect(() => {
-    const handleWebSocketMessage = (event: MessageEvent) => {
-      try {
-        const message = JSON.parse(event.data);
-        
-        if (message.type === 'calendly_event') {
-          const eventData = message.data;
-          
-          // Show toast notification based on event type
-          switch (eventData.type) {
-            case 'scheduled':
-              toast({
-                title: "📅 New Meeting Scheduled",
-                description: `${eventData.event.name || 'Someone'} has scheduled a meeting`,
-              });
-              break;
-            case 'cancelled':
-              toast({
-                title: "❌ Meeting Cancelled",
-                description: `A meeting has been cancelled`,
-                variant: "destructive"
-              });
-              break;
-            case 'no_show':
-              toast({
-                title: "👻 No-Show",
-                description: `Someone didn't show up for their meeting`,
-                variant: "destructive"
-              });
-              break;
-          }
-          
-          // Refresh events to show latest data
-          queryClient.invalidateQueries({ queryKey: ["/api/calendly/events"] });
-        }
-      } catch (error) {
-        console.error('Error handling WebSocket message:', error);
-      }
-    };
-
-    // Get WebSocket instance from window (if available)
-    const ws = (window as any).ws;
-    if (ws && ws.addEventListener) {
-      ws.addEventListener('message', handleWebSocketMessage);
-      
-      return () => {
-        ws.removeEventListener('message', handleWebSocketMessage);
-      };
-    }
-  }, [toast]);
-
-  // Format date and time
-  const formatDateTime = (dateString: string) => {
-    const date = new Date(dateString);
-    const dateOptions: Intl.DateTimeFormatOptions = { 
-      weekday: 'short', 
-      month: 'short', 
-      day: 'numeric',
-      year: 'numeric'
-    };
-    const timeOptions: Intl.DateTimeFormatOptions = { 
-      hour: '2-digit', 
-      minute: '2-digit'
-    };
-    return {
-      date: date.toLocaleDateString('en-US', dateOptions),
-      time: date.toLocaleTimeString('en-US', timeOptions),
-    };
+    return days;
   };
 
-  // Get status badge color
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'scheduled':
-        return 'bg-blue-500/10 text-blue-500 border-blue-500/20';
-      case 'completed':
-        return 'bg-green-500/10 text-green-500 border-green-500/20';
-      case 'cancelled':
-        return 'bg-red-500/10 text-red-500 border-red-500/20';
-      default:
-        return 'bg-gray-500/10 text-gray-500 border-gray-500/20';
+  const calendarDays = generateCalendarDays();
+
+  // Handle appointment form submit
+  const handleAppointmentSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    
+    const appointmentData = {
+      customerName: formData.get('customerName'),
+      customerEmail: formData.get('customerEmail'),
+      customerPhone: formData.get('customerPhone') || undefined,
+      customerCompany: formData.get('customerCompany') || undefined,
+      title: formData.get('title'),
+      description: formData.get('description') || undefined,
+      location: formData.get('location') || undefined,
+      startTime: new Date(formData.get('date') + 'T' + formData.get('startTime')),
+      endTime: new Date(formData.get('date') + 'T' + formData.get('endTime')),
+      type: formData.get('type'),
+    };
+
+    if (editingAppointment) {
+      updateAppointmentMutation.mutate({ id: editingAppointment.id, ...appointmentData });
+    } else {
+      createAppointmentMutation.mutate(appointmentData);
     }
   };
 
-  if (!connectionStatus?.connected) {
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">Calendar</h1>
-            <p className="text-muted-foreground">Manage your Calendly events and availability</p>
-          </div>
+  // Get appointments count for a specific day
+  const getAppointmentsCountForDay = (day: Date) => {
+    return appointments.filter(apt => isSameDay(new Date(apt.startTime), day)).length;
+  };
+
+  // Navigate months
+  const goToPreviousMonth = () => setCurrentDate(subMonths(currentDate, 1));
+  const goToNextMonth = () => setCurrentDate(addMonths(currentDate, 1));
+  const goToToday = () => {
+    setCurrentDate(new Date());
+    setSelectedDate(new Date());
+  };
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-bold" data-testid="text-title">Terminkalender</h1>
+          <p className="text-muted-foreground">Verwalten Sie Ihre Termine und Meetings</p>
         </div>
-
-        <Card className="max-w-2xl mx-auto mt-12">
-          <CardHeader className="text-center">
-            <CalendarIcon className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-            <CardTitle className="text-2xl">Connect Your Calendly Account</CardTitle>
-            <CardDescription>
-              Link your Calendly account to manage events, view scheduled meetings, and sync your availability
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="text-center">
-            {isConnecting ? (
-              <div className="space-y-4">
-                {authUrl ? (
-                  // Show direct link if popup was blocked
-                  <>
-                    <div className="p-4 bg-orange-50 dark:bg-orange-950/20 rounded-lg">
-                      <p className="text-sm font-medium text-orange-900 dark:text-orange-200 mb-2">
-                        Popup blocked - Use this link instead:
-                      </p>
-                      <Button 
-                        variant="default"
-                        size="lg"
-                        asChild
-                        data-testid="button-direct-calendly"
-                      >
-                        <a href={authUrl} target="_blank" rel="noopener noreferrer">
-                          <Link2 className="mr-2 h-5 w-5" />
-                          Open Calendly Authorization
-                        </a>
-                      </Button>
-                      <p className="text-xs text-muted-foreground mt-2">
-                        After authorizing, come back here and your connection will be detected
-                      </p>
-                    </div>
-                    <Button 
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setIsConnecting(false);
-                        setAuthUrl(null);
-                      }}
-                      data-testid="button-cancel-calendly"
-                    >
-                      Cancel
-                    </Button>
-                  </>
-                ) : (
-                  // Show loading spinner if popup opened
-                  <>
-                    <RefreshCw className="h-8 w-8 mx-auto animate-spin text-primary" />
-                    <p className="text-sm text-muted-foreground">
-                      Complete the authorization in the popup window...
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      If the popup was blocked or closed, click below to try again
-                    </p>
-                    <Button 
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setIsConnecting(false);
-                        setAuthUrl(null);
-                        setTimeout(() => connectMutation.mutate(), 100);
-                      }}
-                      data-testid="button-retry-calendly"
-                    >
-                      Retry Connection
-                    </Button>
-                  </>
-                )}
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <Button 
-                  size="lg" 
-                  onClick={() => connectMutation.mutate()}
-                  disabled={connectMutation.isPending}
-                  data-testid="button-connect-calendly"
-                >
-                  <Link2 className="mr-2 h-5 w-5" />
-                  Connect to Calendly
-                </Button>
-                
-                <div className="relative">
-                  <div className="absolute inset-0 flex items-center">
-                    <span className="w-full border-t" />
+        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+          <DialogTrigger asChild>
+            <Button data-testid="button-new-appointment" onClick={() => setEditingAppointment(null)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Neuer Termin
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>{editingAppointment ? 'Termin bearbeiten' : 'Neuen Termin erstellen'}</DialogTitle>
+            </DialogHeader>
+            <form onSubmit={handleAppointmentSubmit}>
+              <div className="grid gap-4 py-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="customerName">Name *</Label>
+                    <Input
+                      id="customerName"
+                      name="customerName"
+                      defaultValue={editingAppointment?.customerName}
+                      required
+                      data-testid="input-customer-name"
+                    />
                   </div>
-                  <div className="relative flex justify-center text-xs uppercase">
-                    <span className="bg-background px-2 text-muted-foreground">Or</span>
+                  <div className="grid gap-2">
+                    <Label htmlFor="customerEmail">E-Mail *</Label>
+                    <Input
+                      id="customerEmail"
+                      name="customerEmail"
+                      type="email"
+                      defaultValue={editingAppointment?.customerEmail}
+                      required
+                      data-testid="input-customer-email"
+                    />
                   </div>
                 </div>
-                
-                <Dialog open={showManualTokenDialog} onOpenChange={setShowManualTokenDialog}>
-                  <DialogTrigger asChild>
-                    <Button 
-                      variant="outline"
-                      size="lg"
-                      data-testid="button-manual-token"
-                    >
-                      <Key className="mr-2 h-5 w-5" />
-                      Use Personal Access Token
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Manual Token Configuration</DialogTitle>
-                      <DialogDescription>
-                        If OAuth isn't working, you can manually enter a Calendly Personal Access Token.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                      <div className="text-sm space-y-2">
-                        <p className="font-medium">How to get your token:</p>
-                        <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-                          <li>Go to <a href="https://calendly.com/app/personal_access_tokens" target="_blank" className="underline">Calendly Personal Access Tokens</a></li>
-                          <li>Click "Create Personal Access Token"</li>
-                          <li>Give it a name (e.g., "SoVoice AI")</li>
-                          <li>Copy the token and paste it below</li>
-                        </ol>
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <Label htmlFor="token">Personal Access Token</Label>
-                        <Textarea
-                          id="token"
-                          placeholder="Paste your Calendly Personal Access Token here..."
-                          value={manualToken}
-                          onChange={(e) => setManualToken(e.target.value)}
-                          className="min-h-[100px] font-mono text-sm"
-                        />
-                      </div>
-                      
-                      <div className="flex justify-end space-x-2">
-                        <Button
-                          variant="outline"
-                          onClick={() => {
-                            setShowManualTokenDialog(false);
-                            setManualToken("");
-                          }}
-                          disabled={saveManualTokenMutation.isPending}
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          onClick={() => saveManualTokenMutation.mutate(manualToken)}
-                          disabled={!manualToken.trim() || saveManualTokenMutation.isPending}
-                        >
-                          {saveManualTokenMutation.isPending ? (
-                            <>
-                              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                              Connecting...
-                            </>
-                          ) : (
-                            "Connect"
-                          )}
-                        </Button>
-                      </div>
-                    </div>
-                  </DialogContent>
-                </Dialog>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="customerPhone">Telefon</Label>
+                    <Input
+                      id="customerPhone"
+                      name="customerPhone"
+                      defaultValue={editingAppointment?.customerPhone || ''}
+                      data-testid="input-customer-phone"
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="customerCompany">Firma</Label>
+                    <Input
+                      id="customerCompany"
+                      name="customerCompany"
+                      defaultValue={editingAppointment?.customerCompany || ''}
+                      data-testid="input-customer-company"
+                    />
+                  </div>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="title">Titel *</Label>
+                  <Input
+                    id="title"
+                    name="title"
+                    defaultValue={editingAppointment?.title}
+                    required
+                    data-testid="input-title"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="description">Beschreibung</Label>
+                  <Textarea
+                    id="description"
+                    name="description"
+                    defaultValue={editingAppointment?.description || ''}
+                    data-testid="input-description"
+                  />
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="date">Datum *</Label>
+                    <Input
+                      id="date"
+                      name="date"
+                      type="date"
+                      defaultValue={editingAppointment ? format(new Date(editingAppointment.startTime), 'yyyy-MM-dd') : (selectedDate ? format(selectedDate, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'))}
+                      required
+                      data-testid="input-date"
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="startTime">Start *</Label>
+                    <Input
+                      id="startTime"
+                      name="startTime"
+                      type="time"
+                      defaultValue={editingAppointment ? format(new Date(editingAppointment.startTime), 'HH:mm') : '10:00'}
+                      required
+                      data-testid="input-start-time"
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="endTime">Ende *</Label>
+                    <Input
+                      id="endTime"
+                      name="endTime"
+                      type="time"
+                      defaultValue={editingAppointment ? format(new Date(editingAppointment.endTime), 'HH:mm') : '11:00'}
+                      required
+                      data-testid="input-end-time"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="type">Typ</Label>
+                    <Select name="type" defaultValue={editingAppointment?.type || 'meeting'}>
+                      <SelectTrigger id="type" data-testid="select-type">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="meeting">Meeting</SelectItem>
+                        <SelectItem value="call">Anruf</SelectItem>
+                        <SelectItem value="demo">Demo</SelectItem>
+                        <SelectItem value="consultation">Beratung</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="location">Ort/Medium</Label>
+                    <Input
+                      id="location"
+                      name="location"
+                      placeholder="z.B. Telefon, Zoom, Büro"
+                      defaultValue={editingAppointment?.location || ''}
+                      data-testid="input-location"
+                    />
+                  </div>
+                </div>
               </div>
+              <DialogFooter>
+                <Button type="submit" data-testid="button-save-appointment">
+                  {editingAppointment ? 'Speichern' : 'Termin erstellen'}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Calendar */}
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <div className="flex justify-between items-center">
+              <CardTitle className="text-xl">
+                {format(currentDate, 'MMMM yyyy', { locale: de })}
+              </CardTitle>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={goToPreviousMonth} data-testid="button-prev-month">
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button variant="outline" size="sm" onClick={goToToday} data-testid="button-today">
+                  Heute
+                </Button>
+                <Button variant="outline" size="sm" onClick={goToNextMonth} data-testid="button-next-month">
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-7 gap-1">
+              {/* Weekday headers */}
+              {['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map((day) => (
+                <div key={day} className="text-center text-sm font-medium py-2">
+                  {day}
+                </div>
+              ))}
+              
+              {/* Calendar days */}
+              {calendarDays.map((day, index) => {
+                const appointmentCount = getAppointmentsCountForDay(day);
+                const isCurrentMonth = isSameMonth(day, currentDate);
+                const isSelected = selectedDate && isSameDay(day, selectedDate);
+                const isCurrentDay = isToday(day);
+                
+                return (
+                  <div
+                    key={index}
+                    onClick={() => setSelectedDate(day)}
+                    className={`
+                      p-2 min-h-[80px] border rounded-md cursor-pointer transition-colors
+                      ${!isCurrentMonth ? 'text-muted-foreground bg-muted/10' : ''}
+                      ${isSelected ? 'bg-primary/10 border-primary' : ''}
+                      ${isCurrentDay ? 'bg-accent' : ''}
+                      hover:bg-accent/50
+                    `}
+                    data-testid={`calendar-day-${format(day, 'yyyy-MM-dd')}`}
+                  >
+                    <div className="font-medium">{format(day, 'd')}</div>
+                    {appointmentCount > 0 && (
+                      <div className="mt-1">
+                        <Badge variant="secondary" className="text-xs">
+                          {appointmentCount} {appointmentCount === 1 ? 'Termin' : 'Termine'}
+                        </Badge>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Selected Day Details */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">
+              {selectedDate ? format(selectedDate, 'EEEE, d. MMMM yyyy', { locale: de }) : 'Tag auswählen'}
+            </CardTitle>
+            <CardDescription>
+              {selectedDate && selectedDateAppointments.length > 0
+                ? `${selectedDateAppointments.length} ${selectedDateAppointments.length === 1 ? 'Termin' : 'Termine'}`
+                : 'Keine Termine'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {selectedDate && selectedDateAppointments.length > 0 ? (
+              <div className="space-y-3">
+                {selectedDateAppointments
+                  .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
+                  .map((appointment) => (
+                    <Card key={appointment.id} className="p-3">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <div className="font-medium" data-testid={`appointment-title-${appointment.id}`}>
+                            {appointment.title}
+                          </div>
+                          <div className="text-sm text-muted-foreground mt-1">
+                            <Clock className="inline h-3 w-3 mr-1" />
+                            {format(new Date(appointment.startTime), 'HH:mm')} - {format(new Date(appointment.endTime), 'HH:mm')}
+                          </div>
+                          <div className="text-sm mt-2 space-y-1">
+                            <div>
+                              <Mail className="inline h-3 w-3 mr-1" />
+                              {appointment.customerEmail}
+                            </div>
+                            {appointment.customerPhone && (
+                              <div>
+                                <Phone className="inline h-3 w-3 mr-1" />
+                                {appointment.customerPhone}
+                              </div>
+                            )}
+                            {appointment.customerCompany && (
+                              <div>
+                                <Building className="inline h-3 w-3 mr-1" />
+                                {appointment.customerCompany}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex gap-1">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => {
+                              setEditingAppointment(appointment);
+                              setIsDialogOpen(true);
+                            }}
+                            data-testid={`button-edit-${appointment.id}`}
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => {
+                              if (confirm('Möchten Sie diesen Termin wirklich löschen?')) {
+                                deleteAppointmentMutation.mutate(appointment.id);
+                              }
+                            }}
+                            data-testid={`button-delete-${appointment.id}`}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </Card>
+                  ))}
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-center py-8">
+                {selectedDate ? 'Keine Termine an diesem Tag' : 'Wählen Sie einen Tag aus dem Kalender'}
+              </p>
             )}
           </CardContent>
         </Card>
       </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Calendar</h1>
-          <p className="text-muted-foreground">Your Calendly events and scheduling</p>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={() => refetchEvents()}
-            disabled={isLoadingEvents}
-            data-testid="button-refresh-events"
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${isLoadingEvents ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => disconnectMutation.mutate()}
-            disabled={disconnectMutation.isPending}
-            data-testid="button-disconnect-calendly"
-          >
-            <Settings className="h-4 w-4 mr-2" />
-            Disconnect
-          </Button>
-        </div>
-      </div>
-
-      {/* Connection Info */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-5 w-5 text-green-500" />
-              <CardTitle className="text-base">Connected to Calendly</CardTitle>
-            </div>
-            <Badge variant="outline" className="bg-green-500/10 text-green-500">
-              Active
-            </Badge>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">
-            Account: {connectionStatus?.userEmail || 'Unknown'}
-          </p>
-        </CardContent>
-      </Card>
-
-      <Tabs defaultValue="events" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="events" data-testid="tab-events">
-            <Calendar className="h-4 w-4 mr-2" />
-            Scheduled Events
-          </TabsTrigger>
-          <TabsTrigger value="event-types" data-testid="tab-event-types">
-            <Clock className="h-4 w-4 mr-2" />
-            Event Types
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="events" className="space-y-4">
-          {isLoadingEvents ? (
-            <div className="space-y-3">
-              {[...Array(3)].map((_, i) => (
-                <Card key={i}>
-                  <CardHeader>
-                    <Skeleton className="h-6 w-48" />
-                    <Skeleton className="h-4 w-32 mt-2" />
-                  </CardHeader>
-                  <CardContent>
-                    <Skeleton className="h-4 w-full" />
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          ) : events && events.length > 0 ? (
-            <div className="space-y-3">
-              {events.map((event: CalendlyEvent) => {
-                const startDateTime = formatDateTime(event.start_time);
-                const endDateTime = formatDateTime(event.end_time);
-                
-                return (
-                  <Card 
-                    key={event.id} 
-                    className="cursor-pointer hover:bg-muted/50 transition-colors"
-                    onClick={() => setSelectedEvent(event)}
-                    data-testid={`card-event-${event.id}`}
-                  >
-                    <CardHeader className="pb-3">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <CardTitle className="text-lg">{event.name}</CardTitle>
-                          <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
-                            <span>{startDateTime.date}</span>
-                            <span>{startDateTime.time} - {endDateTime.time}</span>
-                          </div>
-                        </div>
-                        <Badge 
-                          variant="outline" 
-                          className={getStatusColor(event.status)}
-                        >
-                          {event.status}
-                        </Badge>
-                      </div>
-                    </CardHeader>
-                    {event.invitees && event.invitees.length > 0 && (
-                      <CardContent>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm text-muted-foreground">Invitees:</span>
-                          {event.invitees.map((invitee, index) => (
-                            <Badge key={index} variant="secondary">
-                              {invitee.name || invitee.email}
-                            </Badge>
-                          ))}
-                        </div>
-                      </CardContent>
-                    )}
-                  </Card>
-                );
-              })}
-            </div>
-          ) : (
-            <Card>
-              <CardContent className="text-center py-12">
-                <Calendar className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                <p className="text-muted-foreground">No scheduled events</p>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-
-        <TabsContent value="event-types" className="space-y-4">
-          {isLoadingEventTypes ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {[...Array(4)].map((_, i) => (
-                <Card key={i}>
-                  <CardHeader>
-                    <Skeleton className="h-6 w-32" />
-                    <Skeleton className="h-4 w-full mt-2" />
-                  </CardHeader>
-                </Card>
-              ))}
-            </div>
-          ) : eventTypes && eventTypes.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {eventTypes.map((eventType: CalendlyEventType) => (
-                <Card key={eventType.id} data-testid={`card-event-type-${eventType.id}`}>
-                  <CardHeader>
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <CardTitle className="text-base">{eventType.name}</CardTitle>
-                        {eventType.description && (
-                          <CardDescription className="mt-1">
-                            {eventType.description}
-                          </CardDescription>
-                        )}
-                      </div>
-                      <Badge 
-                        variant={eventType.active ? "default" : "secondary"}
-                      >
-                        {eventType.active ? 'Active' : 'Inactive'}
-                      </Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                      <div className="flex items-center gap-1">
-                        <Clock className="h-4 w-4" />
-                        <span>{eventType.duration_minutes} min</span>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          window.open(eventType.scheduling_url, '_blank');
-                        }}
-                        data-testid={`button-open-scheduling-${eventType.id}`}
-                      >
-                        <Link2 className="h-4 w-4 mr-1" />
-                        Scheduling Link
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          ) : (
-            <Card>
-              <CardContent className="text-center py-12">
-                <Clock className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                <p className="text-muted-foreground">No event types configured</p>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-      </Tabs>
-
-      {/* Event Detail Dialog */}
-      {selectedEvent && (
-        <Dialog open={!!selectedEvent} onOpenChange={() => setSelectedEvent(null)}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{selectedEvent.name}</DialogTitle>
-              <DialogDescription>
-                Event details and information
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div>
-                <Label className="text-muted-foreground">Date & Time</Label>
-                <p className="text-sm">
-                  {formatDateTime(selectedEvent.start_time).date} • {formatDateTime(selectedEvent.start_time).time} - {formatDateTime(selectedEvent.end_time).time}
-                </p>
-              </div>
-              {selectedEvent.location && (
-                <div>
-                  <Label className="text-muted-foreground">Location</Label>
-                  <p className="text-sm">{selectedEvent.location.location || selectedEvent.location.type}</p>
-                </div>
-              )}
-              {selectedEvent.invitees && selectedEvent.invitees.length > 0 && (
-                <div>
-                  <Label className="text-muted-foreground">Invitees</Label>
-                  <div className="space-y-1 mt-1">
-                    {selectedEvent.invitees.map((invitee, index) => (
-                      <p key={index} className="text-sm">
-                        {invitee.name} ({invitee.email})
-                      </p>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {selectedEvent.meeting_notes && (
-                <div>
-                  <Label className="text-muted-foreground">Meeting Notes</Label>
-                  <p className="text-sm">{selectedEvent.meeting_notes}</p>
-                </div>
-              )}
-              <div className="flex justify-end gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => window.open(selectedEvent.uri, '_blank')}
-                  data-testid="button-open-in-calendly"
-                >
-                  <Link2 className="h-4 w-4 mr-2" />
-                  Open in Calendly
-                </Button>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
     </div>
   );
 }

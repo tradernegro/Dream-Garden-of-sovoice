@@ -16,6 +16,7 @@ import {
   type ProjectApiKey, type InsertProjectApiKey,
   type PhoneNumber, type InsertPhoneNumber,
   type Email, type InsertEmail,
+  type Appointment, type InsertAppointment,
   calls,
   agents,
   settings,
@@ -30,7 +31,8 @@ import {
   projectAgents,
   projectApiKeys,
   phoneNumbers,
-  emails
+  emails,
+  appointments
 } from "@shared/schema";
 
 export interface IStorage {
@@ -133,6 +135,16 @@ export interface IStorage {
   markEmailAsRead(id: string): Promise<Email | undefined>;
   toggleEmailStar(id: string): Promise<Email | undefined>;
   moveEmailToFolder(id: string, folder: string): Promise<Email | undefined>;
+  
+  // Appointment methods
+  getAppointments(startDate?: Date, endDate?: Date, limit?: number): Promise<Appointment[]>;
+  getAppointment(id: string): Promise<Appointment | undefined>;
+  getAppointmentsByCustomer(customerEmail: string): Promise<Appointment[]>;
+  getAppointmentsByDate(date: Date): Promise<Appointment[]>;
+  createAppointment(appointment: InsertAppointment): Promise<Appointment>;
+  updateAppointment(id: string, appointment: Partial<InsertAppointment>): Promise<Appointment | undefined>;
+  deleteAppointment(id: string): Promise<boolean>;
+  checkAvailability(startTime: Date, endTime: Date, excludeId?: string): Promise<boolean>;
 }
 
 export class DbStorage implements IStorage {
@@ -207,7 +219,7 @@ export class DbStorage implements IStorage {
 
   async createCall(insertCall: InsertCall): Promise<Call> {
     try {
-      const result = await db.insert(calls).values(insertCall).returning();
+      const result = await db.insert(calls).values([insertCall]).returning();
       console.log('[DbStorage] Created call:', result[0].id);
       return result[0];
     } catch (error) {
@@ -1206,6 +1218,182 @@ export class DbStorage implements IStorage {
     } catch (error) {
       console.error('[DbStorage] Error moving email to folder:', error);
       return undefined;
+    }
+  }
+
+  // Appointment methods
+  async getAppointments(startDate?: Date, endDate?: Date, limit?: number): Promise<Appointment[]> {
+    try {
+      let query = db.select().from(appointments).orderBy(appointments.startTime);
+      
+      if (startDate && endDate) {
+        query = query.where(
+          and(
+            sqlQuery`${appointments.startTime} >= ${startDate}`,
+            sqlQuery`${appointments.startTime} <= ${endDate}`
+          )
+        ) as any;
+      }
+      
+      if (limit) {
+        query = query.limit(limit) as any;
+      }
+      
+      const result = await query;
+      return result;
+    } catch (error) {
+      console.error('[DbStorage] Error getting appointments:', error);
+      return [];
+    }
+  }
+
+  async getAppointment(id: string): Promise<Appointment | undefined> {
+    try {
+      const result = await db.select().from(appointments)
+        .where(eq(appointments.id, id))
+        .limit(1);
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error getting appointment:', error);
+      return undefined;
+    }
+  }
+
+  async getAppointmentsByCustomer(customerEmail: string): Promise<Appointment[]> {
+    try {
+      const result = await db.select().from(appointments)
+        .where(eq(appointments.customerEmail, customerEmail))
+        .orderBy(desc(appointments.startTime));
+      return result;
+    } catch (error) {
+      console.error('[DbStorage] Error getting appointments by customer:', error);
+      return [];
+    }
+  }
+
+  async getAppointmentsByDate(date: Date): Promise<Appointment[]> {
+    try {
+      // Get start and end of the day
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+      
+      const result = await db.select().from(appointments)
+        .where(
+          and(
+            sqlQuery`${appointments.startTime} >= ${startOfDay}`,
+            sqlQuery`${appointments.startTime} <= ${endOfDay}`
+          )
+        )
+        .orderBy(appointments.startTime);
+      return result;
+    } catch (error) {
+      console.error('[DbStorage] Error getting appointments by date:', error);
+      return [];
+    }
+  }
+
+  async createAppointment(appointment: InsertAppointment): Promise<Appointment> {
+    try {
+      const result = await db.insert(appointments).values([appointment]).returning();
+      console.log('[DbStorage] Created appointment:', result[0].id);
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error creating appointment:', error);
+      throw error;
+    }
+  }
+
+  async updateAppointment(id: string, appointment: Partial<InsertAppointment>): Promise<Appointment | undefined> {
+    try {
+      const result = await db.update(appointments)
+        .set({
+          ...appointment,
+          updatedAt: new Date()
+        })
+        .where(eq(appointments.id, id))
+        .returning();
+      
+      if (result.length > 0) {
+        console.log('[DbStorage] Updated appointment:', id);
+      }
+      return result[0];
+    } catch (error) {
+      console.error('[DbStorage] Error updating appointment:', error);
+      return undefined;
+    }
+  }
+
+  async deleteAppointment(id: string): Promise<boolean> {
+    try {
+      const result = await db.delete(appointments).where(eq(appointments.id, id)).returning();
+      return result.length > 0;
+    } catch (error) {
+      console.error('[DbStorage] Error deleting appointment:', error);
+      return false;
+    }
+  }
+
+  async checkAvailability(startTime: Date, endTime: Date, excludeId?: string): Promise<boolean> {
+    try {
+      // Check for overlapping appointments
+      let query = db.select().from(appointments)
+        .where(
+          and(
+            sqlQuery`${appointments.status} != 'cancelled'`,
+            or(
+              // New appointment starts during existing appointment
+              and(
+                sqlQuery`${appointments.startTime} <= ${startTime}`,
+                sqlQuery`${appointments.endTime} > ${startTime}`
+              ),
+              // New appointment ends during existing appointment
+              and(
+                sqlQuery`${appointments.startTime} < ${endTime}`,
+                sqlQuery`${appointments.endTime} >= ${endTime}`
+              ),
+              // New appointment contains existing appointment
+              and(
+                sqlQuery`${appointments.startTime} >= ${startTime}`,
+                sqlQuery`${appointments.endTime} <= ${endTime}`
+              )
+            )
+          )
+        );
+      
+      if (excludeId) {
+        query = query.where(
+          and(
+            sqlQuery`${appointments.id} != ${excludeId}`,
+            sqlQuery`${appointments.status} != 'cancelled'`,
+            or(
+              // New appointment starts during existing appointment
+              and(
+                sqlQuery`${appointments.startTime} <= ${startTime}`,
+                sqlQuery`${appointments.endTime} > ${startTime}`
+              ),
+              // New appointment ends during existing appointment
+              and(
+                sqlQuery`${appointments.startTime} < ${endTime}`,
+                sqlQuery`${appointments.endTime} >= ${endTime}`
+              ),
+              // New appointment contains existing appointment
+              and(
+                sqlQuery`${appointments.startTime} >= ${startTime}`,
+                sqlQuery`${appointments.endTime} <= ${endTime}`
+              )
+            )
+          )
+        ) as any;
+      }
+      
+      const result = await query;
+      return result.length === 0; // Available if no overlapping appointments
+    } catch (error) {
+      console.error('[DbStorage] Error checking availability:', error);
+      return false;
     }
   }
 }

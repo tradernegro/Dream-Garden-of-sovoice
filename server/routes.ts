@@ -18,7 +18,8 @@ import {
   type Call, 
   type Agent,
   type ChatSession,
-  type PhoneNumber 
+  type PhoneNumber,
+  type Appointment 
 } from "@shared/schema";
 import { randomBytes, createHash } from "crypto";
 import { getTwilioClient, getTwilioFromPhoneNumber } from "./twilio-client";
@@ -886,6 +887,232 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!deleted) {
         return res.status(404).json({ error: "Agent not found" });
       }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // ==================== APPOINTMENT ROUTES ====================
+
+  // Get appointments
+  app.get("/api/appointments", async (req: Request, res: Response) => {
+    try {
+      const { startDate, endDate, customerEmail } = req.query;
+      
+      if (customerEmail) {
+        const appointments = await storage.getAppointmentsByCustomer(customerEmail as string);
+        return res.json(appointments);
+      }
+      
+      let appointments: Appointment[];
+      if (startDate && endDate) {
+        appointments = await storage.getAppointments(
+          new Date(startDate as string),
+          new Date(endDate as string)
+        );
+      } else {
+        appointments = await storage.getAppointments();
+      }
+      
+      res.json(appointments);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Get single appointment
+  app.get("/api/appointments/:id", async (req: Request, res: Response) => {
+    try {
+      const appointment = await storage.getAppointment(req.params.id);
+      if (!appointment) {
+        return res.status(404).json({ error: "Appointment not found" });
+      }
+      res.json(appointment);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Get appointments for a specific date
+  app.get("/api/appointments/date/:date", async (req: Request, res: Response) => {
+    try {
+      const date = new Date(req.params.date);
+      const appointments = await storage.getAppointmentsByDate(date);
+      res.json(appointments);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Check availability for a time slot
+  app.post("/api/appointments/check-availability", async (req: Request, res: Response) => {
+    try {
+      const { startTime, endTime, excludeId } = req.body;
+      
+      if (!startTime || !endTime) {
+        return res.status(400).json({ error: "Start time and end time are required" });
+      }
+      
+      const available = await storage.checkAvailability(
+        new Date(startTime),
+        new Date(endTime),
+        excludeId
+      );
+      
+      res.json({ available });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Create appointment
+  app.post("/api/appointments", async (req: Request, res: Response) => {
+    try {
+      const { startTime, endTime, customerName, customerEmail, ...rest } = req.body;
+      
+      if (!startTime || !endTime || !customerName || !customerEmail) {
+        return res.status(400).json({ 
+          error: "Start time, end time, customer name and email are required" 
+        });
+      }
+      
+      // Check availability first
+      const available = await storage.checkAvailability(
+        new Date(startTime),
+        new Date(endTime)
+      );
+      
+      if (!available) {
+        return res.status(409).json({ 
+          error: "Time slot is not available" 
+        });
+      }
+      
+      const appointment = await storage.createAppointment({
+        startTime: new Date(startTime),
+        endTime: new Date(endTime),
+        customerName,
+        customerEmail,
+        title: rest.title || `Meeting with ${customerName}`,
+        status: "scheduled",
+        ...rest
+      });
+      
+      // Broadcast real-time update
+      broadcastToClients("appointment:created", appointment);
+      
+      // Try to send email confirmation
+      try {
+        const msAuthService = new MicrosoftAuthService();
+        const isConfigured = await msAuthService.isConfigured();
+        
+        if (isConfigured) {
+          const appointmentTime = new Date(appointment.startTime).toLocaleString('de-DE', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZone: 'Europe/Berlin'
+          });
+          
+          await msAuthService.sendEmail({
+            to: appointment.customerEmail,
+            subject: `Terminbestätigung - ${appointmentTime}`,
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2 style="color: #333;">Terminbestätigung</h2>
+                
+                <p>Sehr geehrte/r ${appointment.customerName},</p>
+                
+                <p>Ihr Termin wurde erfolgreich bestätigt.</p>
+                
+                <div style="background-color: #f5f5f5; padding: 20px; border-radius: 5px; margin: 20px 0;">
+                  <h3 style="color: #333; margin-top: 0;">Termindetails:</h3>
+                  <p><strong>Datum & Zeit:</strong> ${appointmentTime}</p>
+                  ${appointment.location ? `<p><strong>Ort/Medium:</strong> ${appointment.location}</p>` : ''}
+                  ${appointment.description ? `<p><strong>Beschreibung:</strong> ${appointment.description}</p>` : ''}
+                </div>
+                
+                <p>Bei Fragen oder zur Terminänderung können Sie uns jederzeit kontaktieren.</p>
+                
+                <p>Mit freundlichen Grüßen<br>
+                Ihr SoVoice AI Team</p>
+              </div>
+            `,
+            text: `Terminbestätigung\n\nSehr geehrte/r ${appointment.customerName},\n\nIhr Termin wurde erfolgreich bestätigt.\n\nTermin: ${appointmentTime}\n${appointment.location ? `Ort/Medium: ${appointment.location}\n` : ''}${appointment.description ? `Beschreibung: ${appointment.description}\n` : ''}\n\nMit freundlichen Grüßen\nIhr SoVoice AI Team`
+          });
+          
+          // Update appointment metadata to indicate email was sent
+          await storage.updateAppointment(appointment.id, {
+            metadata: {
+              ...appointment.metadata,
+              emailSent: true
+            }
+          });
+        }
+      } catch (emailError) {
+        console.error("[Appointment] Failed to send confirmation email:", emailError);
+        // Don't fail the appointment creation if email fails
+      }
+      
+      res.json(appointment);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Update appointment
+  app.patch("/api/appointments/:id", async (req: Request, res: Response) => {
+    try {
+      const { startTime, endTime, ...updateData } = req.body;
+      
+      // If updating time, check availability
+      if (startTime && endTime) {
+        const available = await storage.checkAvailability(
+          new Date(startTime),
+          new Date(endTime),
+          req.params.id
+        );
+        
+        if (!available) {
+          return res.status(409).json({ 
+            error: "New time slot is not available" 
+          });
+        }
+        
+        updateData.startTime = new Date(startTime);
+        updateData.endTime = new Date(endTime);
+      }
+      
+      const appointment = await storage.updateAppointment(req.params.id, updateData);
+      
+      if (!appointment) {
+        return res.status(404).json({ error: "Appointment not found" });
+      }
+      
+      // Broadcast real-time update
+      broadcastToClients("appointment:updated", appointment);
+      
+      res.json(appointment);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Delete appointment
+  app.delete("/api/appointments/:id", async (req: Request, res: Response) => {
+    try {
+      const deleted = await storage.deleteAppointment(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Appointment not found" });
+      }
+      
+      // Broadcast real-time update
+      broadcastToClients("appointment:deleted", { id: req.params.id });
+      
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
