@@ -351,15 +351,15 @@ export class ElevenLabsRealtimeSession {
   private async generateResponse(): Promise<string> {
     try {
       const response = await openai.chat.completions.create({
-        model: "gpt-4o",
+        model: "gpt-4o-mini", // Using cheaper model to reduce costs (30x cheaper than GPT-4o)
         messages: this.conversationHistory as any,
-        temperature: 0.8,
+        temperature: 0.7, // Slightly lower temperature for more consistent responses
         max_tokens: 150,
       });
 
       return response.choices[0]?.message?.content || "I'm sorry, I didn't catch that.";
     } catch (error) {
-      console.error(`[ElevenLabs Session ${this.callId}] GPT-4 error:`, error);
+      console.error(`[ElevenLabs Session ${this.callId}] GPT-4o-mini error:`, error);
       return "I'm sorry, I'm having trouble processing that right now.";
     }
   }

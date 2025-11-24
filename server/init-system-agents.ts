@@ -194,9 +194,9 @@ Falls technische Probleme bei der Erfassung:
 
 Falls der Kunde keine E-Mail angeben möchte:
 „Ich verstehe Ihre Bedenken. Die E-Mail benötigen wir ausschließlich für die Terminbestätigung und wichtige Informationen zu unserem Gespräch. Ohne E-Mail-Adresse kann ich Ihnen leider keinen Termin vereinbaren. Alternativ können Sie auch eine geschäftliche E-Mail-Adresse angeben."`,
-      voiceProvider: "openai" as const,
-      voice: "alloy",
-      temperature: 10,
+      voiceProvider: "openai" as const, // OpenAI Realtime for best quality
+      voice: "alloy", // Standard OpenAI voice
+      temperature: 7, // Lower temperature for more consistent responses
       isActive: 1,
       isSystem: 1,
       language: "de",
