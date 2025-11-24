@@ -160,11 +160,27 @@ export default function EmailManagement() {
   };
 
   const connectToMicrosoft = async () => {
-    // Microsoft OAuth temporarily disabled - being replaced with direct integration
-    toast({
-      title: "Coming Soon",
-      description: "Microsoft Outlook integration is being upgraded. Please check back soon.",
-    });
+    setIsConnecting(true);
+    try {
+      // Get OAuth authorization URL
+      const response = await fetch("/api/microsoft/auth-url");
+      const data = await response.json();
+      
+      if (data.authUrl) {
+        // Redirect to Microsoft OAuth
+        window.location.href = data.authUrl;
+      } else {
+        throw new Error("No authorization URL received");
+      }
+    } catch (error) {
+      console.error("Failed to initiate Microsoft connection:", error);
+      toast({
+        title: "Verbindungsfehler",
+        description: "Konnte Verbindung zu Microsoft nicht herstellen. Bitte versuchen Sie es später erneut.",
+        variant: "destructive",
+      });
+      setIsConnecting(false);
+    }
   };
 
   const submitManualToken = async () => {
