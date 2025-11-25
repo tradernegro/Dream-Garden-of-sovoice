@@ -31,6 +31,10 @@ externalPort = 3003
 localPort = 40333
 externalPort = 3002
 
+[[ports]]
+localPort = 40463
+externalPort = 3001
+
 [env]
 PORT = "5000"
 
@@ -67,3 +71,6 @@ EMAIL_PROVIDER = "godaddy"
 GODADDY_EMAIL = "info@sovoice.ai"
 GODADDY_PASSWORD = "FlorianErhantootheMoon1!"
 GODADDY_REGION = "us"
+
+[userenv.production]
+NODE_ENV = "production"
