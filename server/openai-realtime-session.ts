@@ -1,6 +1,8 @@
 import WebSocket from "ws";
 import { storage } from "./storage";
 import { broadcastToClients } from "./websocket-broadcast";
+import { startCallMonitoring, recordLatency, endCallMonitoring } from "./latency-monitor";
+import { startPrefetch, getPrefetchedData, cleanupPrefetch } from "./predictive-prefetch";
 
 export interface RealtimeSessionConfig {
   callId: string;
@@ -18,6 +20,13 @@ export class OpenAIRealtimeSession {
   private currentResponseId: string | null = null;
   private isAssistantSpeaking: boolean = false;
   private isCancelling: boolean = false;
+  
+  // Latency tracking
+  private responseStartTime: number = 0;
+  private sttStartTime: number = 0;
+  private sttEndTime: number = 0;
+  private phoneNumber: string = "";
+  private firstAudioDeltaReceived: boolean = false;
 
   constructor(config: RealtimeSessionConfig) {
     this.callId = config.callId;
@@ -26,6 +35,10 @@ export class OpenAIRealtimeSession {
   }
 
   async start() {
+    // Start latency monitoring for this call
+    startCallMonitoring(this.callId);
+    console.log(`[Session ${this.callId}] Latency monitoring started`);
+    
     // Prioritize real OPENAI_API_KEY over dummy AI_INTEGRATIONS key
     const realKey = process.env.OPENAI_API_KEY;
     const integrationKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
@@ -51,6 +64,16 @@ export class OpenAIRealtimeSession {
     const agent = this.agentId 
       ? await storage.getAgent(this.agentId)
       : await storage.getActiveAgent();
+    
+    // Get call info for prefetching
+    const call = await storage.getCall(this.callId);
+    if (call) {
+      this.phoneNumber = call.phoneNumber;
+      // Start prefetching data in parallel (non-blocking)
+      startPrefetch(this.callId, call.phoneNumber, agent?.id || "").catch(err => {
+        console.error(`[Session ${this.callId}] Prefetch error:`, err);
+      });
+    }
 
     if (!agent) {
       throw new Error("No active agent found");
@@ -167,6 +190,15 @@ export class OpenAIRealtimeSession {
       case "input_audio_buffer.speech_started":
         console.log(`[Session ${this.callId}] 🎤 User started speaking - interrupting assistant`);
         
+        // Start STT timing
+        this.sttStartTime = Date.now();
+        
+        // Record interrupt handling time if we're interrupting
+        if (this.isAssistantSpeaking) {
+          const interruptTime = Date.now() - this.responseStartTime;
+          recordLatency(this.callId, "interrupt_handling", interruptTime);
+        }
+        
         // Only clear Twilio buffer if assistant is speaking (to stop assistant audio)
         // Do NOT clear if user is just starting to speak (would delete their audio)
         if (this.streamSid && this.isAssistantSpeaking) {
@@ -226,9 +258,32 @@ export class OpenAIRealtimeSession {
         console.log(`[Session ${this.callId}] Response created:`, event.response?.id);
         this.currentResponseId = event.response?.id || null;
         this.isAssistantSpeaking = true;
+        
+        // Start response timing for TTS first byte measurement
+        this.responseStartTime = Date.now();
+        
+        // Record LLM first token latency (time from STT completion to response.created)
+        if (this.sttEndTime > 0) {
+          const llmLatency = Date.now() - this.sttEndTime;
+          recordLatency(this.callId, "llm_first_token", llmLatency);
+        }
         break;
 
       case "response.audio.delta":
+        // Record TTS first byte latency (only for first audio delta of a response)
+        if (!this.firstAudioDeltaReceived && this.responseStartTime > 0) {
+          const ttsLatency = Date.now() - this.responseStartTime;
+          recordLatency(this.callId, "tts_first_byte", ttsLatency);
+          this.firstAudioDeltaReceived = true;
+          
+          // Record turn-taking time (from STT completion to first audio - mouth-to-ear)
+          // This is the correct NLPearl metric: time from user finishes speaking to AI audio starts
+          if (this.sttEndTime > 0) {
+            const turnTakingTime = Date.now() - this.sttEndTime;
+            recordLatency(this.callId, "turn_taking", turnTakingTime);
+          }
+        }
+        
         // Send audio back to Twilio
         console.log(`[Session ${this.callId}] 🔊 Received audio delta, length:`, event.delta?.length || 0);
         if (event.delta && this.streamSid) {
@@ -262,7 +317,13 @@ export class OpenAIRealtimeSession {
         break;
 
       case "conversation.item.input_audio_transcription.completed":
-        // User speech transcribed
+        // User speech transcribed - record STT latency
+        if (this.sttStartTime > 0) {
+          this.sttEndTime = Date.now();
+          const sttLatency = this.sttEndTime - this.sttStartTime;
+          recordLatency(this.callId, "stt_latency", sttLatency);
+        }
+        
         if (event.transcript) {
           this.conversationTranscript.push({
             speaker: "user",
@@ -304,6 +365,12 @@ export class OpenAIRealtimeSession {
         this.isAssistantSpeaking = false;
         this.currentResponseId = null;
         this.isCancelling = false; // Reset cancel flag
+        
+        // Reset latency tracking for next turn
+        this.firstAudioDeltaReceived = false;
+        this.sttStartTime = 0;
+        this.sttEndTime = 0;
+        this.responseStartTime = 0;
         
         // Assistant finished responding
         const lastItem = this.conversationTranscript[this.conversationTranscript.length - 1];
@@ -683,6 +750,20 @@ export class OpenAIRealtimeSession {
 
   async cleanup() {
     console.log(`[Session ${this.callId}] Cleaning up session`);
+    
+    // End latency monitoring and get final stats
+    const callMetrics = endCallMonitoring(this.callId);
+    if (callMetrics) {
+      console.log(`[Session ${this.callId}] Call latency stats:`, {
+        avgTurnTaking: `${callMetrics.avgTurnTaking}ms`,
+        avgLLMFirstToken: `${callMetrics.avgLLMFirstToken}ms`,
+        avgTTSFirstByte: `${callMetrics.avgTTSFirstByte}ms`,
+        totalInterrupts: callMetrics.totalInterrupts
+      });
+    }
+    
+    // Cleanup prefetched data
+    cleanupPrefetch(this.callId);
     
     // Save final transcript
     const fullTranscript = this.conversationTranscript

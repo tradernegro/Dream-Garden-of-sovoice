@@ -277,6 +277,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ==================== LATENCY MONITORING ROUTES ====================
+  
+  // Get latency statistics (NLPearl-style monitoring)
+  app.get("/api/latency/stats", async (req: Request, res: Response) => {
+    try {
+      const { getLatencyStats } = await import("./latency-monitor");
+      const stats = getLatencyStats();
+      res.json(stats);
+    } catch (error) {
+      console.error("Latency stats error:", error);
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Get TTS cache statistics
+  app.get("/api/tts-cache/stats", async (req: Request, res: Response) => {
+    try {
+      const { ttsCache } = await import("./tts-cache");
+      const stats = ttsCache.getStats();
+      res.json(stats);
+    } catch (error) {
+      console.error("TTS cache stats error:", error);
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Warm TTS cache for a specific voice
+  app.post("/api/tts-cache/warm", async (req: Request, res: Response) => {
+    try {
+      const { voice, provider, language } = req.body;
+      if (!voice || !provider) {
+        return res.status(400).json({ error: "voice and provider are required" });
+      }
+      
+      const { warmCacheForAgent } = await import("./tts-cache");
+      const cached = await warmCacheForAgent(voice, provider, language || "de");
+      res.json({ success: true, cachedPhrases: cached });
+    } catch (error) {
+      console.error("TTS cache warm error:", error);
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Get prefetch statistics
+  app.get("/api/prefetch/stats", async (req: Request, res: Response) => {
+    try {
+      const { getPrefetchStats } = await import("./predictive-prefetch");
+      const stats = getPrefetchStats();
+      res.json(stats);
+    } catch (error) {
+      console.error("Prefetch stats error:", error);
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
   // ==================== CALL ROUTES ====================
   
   // Get all calls
