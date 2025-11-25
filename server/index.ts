@@ -1,4 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
+import { createServer } from "http";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { seedData } from "./seed-data";
@@ -11,22 +12,24 @@ declare module 'http' {
     rawBody: unknown
   }
 }
+
+// ========== CRITICAL: Health check MUST be registered FIRST ==========
+// These routes respond BEFORE any other middleware to ensure fastest response
+app.get("/health", (_req, res) => {
+  res.status(200).send("ok");
+});
+
+app.get("/api/health", (_req, res) => {
+  res.status(200).json({ status: "ok", timestamp: Date.now() });
+});
+
+// Now register body parsers and other middleware
 app.use(express.json({
   verify: (req, _res, buf) => {
     req.rawBody = buf;
   }
 }));
 app.use(express.urlencoded({ extended: false }));
-
-// Health check endpoint - responds immediately without any complexity
-app.get("/health", (_req, res) => {
-  res.status(200).send("ok");
-});
-
-// Additional health check endpoint
-app.get("/api/health", (_req, res) => {
-  res.status(200).json({ status: "ok" });
-});
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -62,47 +65,62 @@ app.use((req, res, next) => {
 const isProduction = process.env.NODE_ENV === "production";
 const port = parseInt(process.env.PORT || '5000', 10);
 
-// Start server synchronously first, then do async setup
+// ========== CRITICAL: Create HTTP server and start listening IMMEDIATELY ==========
+// This ensures health checks can be answered within Replit's 5-second window
+const httpServer = createServer(app);
+
+// Start listening BEFORE any async initialization
+httpServer.listen(port, "0.0.0.0", () => {
+  log(`Server listening on 0.0.0.0:${port} (${isProduction ? 'production' : 'development'} mode)`);
+  log(`Health check available at /health`);
+});
+
+// ========== ASYNC INITIALIZATION (runs AFTER server is already listening) ==========
 (async () => {
-  const server = await registerRoutes(app);
+  try {
+    // Register all routes (this attaches to the already-running server)
+    await registerRoutes(app, httpServer);
+    log("[Init] Routes registered");
 
-  // Error handler - don't throw to prevent crashes
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
-    console.error("[Error]", message);
-    res.status(status).json({ message });
-  });
+    // Error handler - don't throw to prevent crashes
+    app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+      const status = err.status || err.statusCode || 500;
+      const message = err.message || "Internal Server Error";
+      console.error("[Error]", message);
+      res.status(status).json({ message });
+    });
 
-  // Setup Vite for development, static serving for production
-  if (!isProduction) {
-    await setupVite(app, server);
-  } else {
-    serveStatic(app);
-  }
+    // Setup Vite for development, static serving for production
+    if (!isProduction) {
+      await setupVite(app, httpServer);
+      log("[Init] Vite dev server ready");
+    } else {
+      serveStatic(app);
+      log("[Init] Static files configured");
+    }
 
-  // Start server - this must happen quickly for health checks
-  server.listen(port, "0.0.0.0", () => {
-    log(`serving on port ${port} (${isProduction ? 'production' : 'development'} mode)`);
-  });
-
-  // Background initialization - only in development, completely skipped in production
-  if (!isProduction) {
-    setTimeout(async () => {
-      try {
-        log("[Init] Development mode - starting background initialization");
-        await Promise.all([
-          initializeSystemAgents().catch(err => {
-            console.error("[Init] System agents failed:", err);
-          }),
-          seedData().catch(err => {
-            console.error("[Init] Seed data failed:", err);
-          })
-        ]);
-        log("[Init] Development initialization complete");
-      } catch (error) {
-        console.error("[Init] Initialization error:", error);
-      }
-    }, 100);
+    // Background initialization - runs after everything else is ready
+    if (!isProduction) {
+      // Use setImmediate to ensure this runs after current event loop
+      setImmediate(async () => {
+        try {
+          log("[Init] Starting background initialization...");
+          await Promise.all([
+            initializeSystemAgents().catch(err => {
+              console.error("[Init] System agents failed:", err);
+            }),
+            seedData().catch(err => {
+              console.error("[Init] Seed data failed:", err);
+            })
+          ]);
+          log("[Init] Background initialization complete");
+        } catch (error) {
+          console.error("[Init] Initialization error:", error);
+        }
+      });
+    }
+  } catch (error) {
+    console.error("[Fatal] Server initialization failed:", error);
+    // Don't exit - keep health checks responding
   }
 })();

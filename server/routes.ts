@@ -84,7 +84,7 @@ async function authenticateApiKey(req: Request, res: Response, next: NextFunctio
   }
 }
 
-export async function registerRoutes(app: Express): Promise<Server> {
+export async function registerRoutes(app: Express, httpServer: Server): Promise<void> {
   // CORS configuration - Only allow sovoice.ai domains
   const allowedOrigins = [
     'https://sovoice.ai',
@@ -3063,8 +3063,6 @@ AGENT_CREATE:
   });
 
   // ==================== WEBSOCKET SETUP ====================
-
-  const httpServer = createServer(app);
   
   // WebSocket server for client real-time updates
   const wss = new WebSocketServer({ noServer: true });
@@ -3212,6 +3210,4 @@ AGENT_CREATE:
       }
     });
   });
-
-  return httpServer;
 }
