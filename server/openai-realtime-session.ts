@@ -115,19 +115,19 @@ export class OpenAIRealtimeSession {
       
       // Trigger initial audio greeting after session is configured  
       setTimeout(() => {
-        console.log(`[Session ${this.callId}] Triggering initial audio greeting`);
+        console.log(`[Session ${this.callId}] Triggering initial audio greeting for agent: ${agent.name}`);
         
-        // Request a response with explicit instructions for the greeting
-        // This ensures the AI knows what to say initially
+        // Request a response with dynamic instructions based on agent name
+        // The AI will introduce itself with the correct agent identity
         this.sendToOpenAI({
           type: "response.create",
           response: {
             modalities: ["text", "audio"],
-            instructions: "Greet the caller professionally. Introduce yourself as the SOVOICE Assistant and ask how you can help them today. Be friendly and welcoming."
+            instructions: `Greet the caller professionally. Introduce yourself as "${agent.name}" and ask how you can help them today. Be friendly and welcoming. Use the language and tone from your system prompt.`
           }
         });
         
-        console.log(`[Session ${this.callId}] Initial greeting request sent`);
+        console.log(`[Session ${this.callId}] Initial greeting request sent for: ${agent.name}`);
       }, 500); // Small delay to ensure session is fully ready
     });
 
