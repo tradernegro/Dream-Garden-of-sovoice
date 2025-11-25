@@ -102,17 +102,23 @@ httpServer.listen(port, "0.0.0.0", () => {
 // CRITICAL: Use setImmediate to ensure health check can respond FIRST
 setImmediate(async () => {
   try {
-    // Register all routes with timeout protection
-    const routeTimeout = isProduction ? 3000 : 10000;
+    // Register all routes with FAST timeout in production (1s) to prevent deployment failures
+    // In development, allow more time (10s) for slower startup
+    const routeTimeout = isProduction ? 1000 : 10000;
+    
+    log(`[Init] Registering routes (timeout: ${routeTimeout}ms)...`);
+    
     const routePromise = registerRoutes(app, httpServer);
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Route registration timeout')), routeTimeout)
+    const timeoutPromise = new Promise<void>((resolve) => 
+      setTimeout(() => {
+        log("[Init] Route registration taking too long - continuing in background");
+        resolve();
+      }, routeTimeout)
     );
     
-    await Promise.race([routePromise, timeoutPromise]).catch(err => {
-      console.error("[Init] Route registration issue:", err.message);
-    });
-    log("[Init] Routes registered");
+    // Don't wait for routes if they're slow - let them continue in background
+    await Promise.race([routePromise, timeoutPromise]);
+    log("[Init] Routes registered (or continuing in background)");
 
     // Error handler - don't throw to prevent crashes
     app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
