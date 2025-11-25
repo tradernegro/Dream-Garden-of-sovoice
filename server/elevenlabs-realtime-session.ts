@@ -1,5 +1,6 @@
 import WebSocket from "ws";
 import { storage } from "./storage";
+import { broadcastToClients } from "./websocket-broadcast";
 import { streamSpeech } from "./elevenlabs-client";
 import { transcribeAudio } from "./openai-client";
 import OpenAI from "openai";
@@ -225,6 +226,14 @@ export class ElevenLabsRealtimeSession {
         text: transcript,
       });
       
+      // Broadcast live transcript update to all connected clients
+      broadcastToClients("transcript:update", {
+        callId: this.callId,
+        speaker: "user",
+        text: transcript,
+        timestamp: new Date().toISOString()
+      });
+      
       // Extract and update customer metadata
       await this.extractAndUpdateCustomerMetadata(transcript);
 
@@ -244,6 +253,14 @@ export class ElevenLabsRealtimeSession {
         callId: this.callId,
         speaker: "assistant",
         text: aiResponse,
+      });
+      
+      // Broadcast live transcript update to all connected clients
+      broadcastToClients("transcript:update", {
+        callId: this.callId,
+        speaker: "assistant",
+        text: aiResponse,
+        timestamp: new Date().toISOString()
       });
 
       // Step 3: Synthesize and send audio

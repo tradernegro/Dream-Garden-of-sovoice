@@ -1,5 +1,6 @@
 import WebSocket from "ws";
 import { storage } from "./storage";
+import { broadcastToClients } from "./websocket-broadcast";
 
 export interface RealtimeSessionConfig {
   callId: string;
@@ -277,6 +278,14 @@ export class OpenAIRealtimeSession {
             timestamp: new Date()
           });
           
+          // Broadcast live transcript update to all connected clients
+          broadcastToClients("transcript:update", {
+            callId: this.callId,
+            speaker: "user",
+            text: event.transcript,
+            timestamp: new Date().toISOString()
+          });
+          
           // Extract and update customer metadata
           this.extractAndUpdateCustomerMetadata(event.transcript);
         }
@@ -305,6 +314,14 @@ export class OpenAIRealtimeSession {
             speaker: "assistant",
             text: lastItem.text,
             timestamp: lastItem.timestamp
+          });
+          
+          // Broadcast live transcript update to all connected clients
+          broadcastToClients("transcript:update", {
+            callId: this.callId,
+            speaker: "assistant",
+            text: lastItem.text,
+            timestamp: lastItem.timestamp.toISOString()
           });
         }
         break;

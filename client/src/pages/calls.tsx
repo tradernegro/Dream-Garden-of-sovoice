@@ -7,7 +7,9 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
+import { useLiveTranscript, TranscriptEntry } from "@/hooks/use-live-transcript";
 import { apiRequest } from "@/lib/queryClient";
 import {
   Tabs,
@@ -141,6 +143,14 @@ export default function CallsManagement() {
   });
   const [doNotDisturb, setDoNotDisturb] = useState(false);
   const callIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  const [showTranscriptDialog, setShowTranscriptDialog] = useState(false);
+  const [selectedCallForTranscript, setSelectedCallForTranscript] = useState<Call | null>(null);
+  const transcriptEndRef = useRef<HTMLDivElement | null>(null);
+  
+  const { transcripts: liveTranscripts, isConnected: isTranscriptConnected } = useLiveTranscript(
+    selectedCallForTranscript?.status === "in-progress" ? selectedCallForTranscript.id : null
+  );
 
   // Fetch data
   const { data: calls = [], isLoading: isLoadingCalls } = useQuery<Call[]>({
@@ -861,6 +871,18 @@ export default function CallsManagement() {
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
+                            <Button 
+                              size="sm" 
+                              variant="default"
+                              onClick={() => {
+                                setSelectedCallForTranscript(call);
+                                setShowTranscriptDialog(true);
+                              }}
+                              data-testid={`button-transcript-${call.id}`}
+                            >
+                              <MessageSquare className="h-4 w-4 mr-1" />
+                              Live Transkript
+                            </Button>
                             <Button size="sm" variant="outline">
                               <UserPlus className="h-4 w-4 mr-1" />
                               Konferenz
@@ -868,10 +890,6 @@ export default function CallsManagement() {
                             <Button size="sm" variant="outline">
                               <ArrowLeftRight className="h-4 w-4 mr-1" />
                               Transfer
-                            </Button>
-                            <Button size="sm" variant="outline">
-                              <MessageSquare className="h-4 w-4 mr-1" />
-                              Flüstern
                             </Button>
                             <Button size="sm" variant="destructive">
                               <PhoneOff className="h-4 w-4 mr-1" />
@@ -1043,13 +1061,18 @@ export default function CallsManagement() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setSelectedCallForTranscript(call);
+                                setShowTranscriptDialog(true);
+                              }}
+                            >
+                              <MessageSquare className="h-4 w-4 mr-2" />
+                              Transkript anzeigen
+                            </DropdownMenuItem>
                             <DropdownMenuItem>
                               <Phone className="h-4 w-4 mr-2" />
                               Zurückrufen
-                            </DropdownMenuItem>
-                            <DropdownMenuItem>
-                              <MessageSquare className="h-4 w-4 mr-2" />
-                              Transkript anzeigen
                             </DropdownMenuItem>
                             {call.recording && (
                               <DropdownMenuItem>
@@ -1412,6 +1435,104 @@ export default function CallsManagement() {
               data-testid="button-start-call"
             >
               Anruf starten
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Live Transcript Dialog */}
+      <Dialog open={showTranscriptDialog} onOpenChange={setShowTranscriptDialog}>
+        <DialogContent className="max-w-2xl max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MessageSquare className="h-5 w-5" />
+              Gesprächsprotokoll
+              {selectedCallForTranscript?.status === "in-progress" && (
+                <Badge variant="outline" className="ml-2 bg-green-500/10 text-green-600 border-green-500/20">
+                  <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse" />
+                  Live
+                </Badge>
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              {selectedCallForTranscript && (
+                <div className="flex items-center gap-4 mt-2">
+                  <span className="font-mono">{selectedCallForTranscript.phoneNumber}</span>
+                  <Badge className={getStatusColor(selectedCallForTranscript.status)}>
+                    {selectedCallForTranscript.status}
+                  </Badge>
+                  {selectedCallForTranscript.metadata?.customerName && (
+                    <Badge variant="outline">
+                      {selectedCallForTranscript.metadata.customerName}
+                    </Badge>
+                  )}
+                </div>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <ScrollArea className="h-[400px] pr-4">
+            <div className="space-y-4">
+              {selectedCallForTranscript?.status === "in-progress" ? (
+                liveTranscripts.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                    <Activity className="h-8 w-8 mb-3 animate-pulse" />
+                    <p className="text-sm">Warte auf Gesprächsinhalt...</p>
+                    <p className="text-xs mt-1">
+                      {isTranscriptConnected ? "Verbunden" : "Verbinde..."}
+                    </p>
+                  </div>
+                ) : (
+                  liveTranscripts.map((entry, index) => (
+                    <div
+                      key={index}
+                      className={`flex gap-3 ${entry.speaker === "assistant" ? "flex-row" : "flex-row-reverse"}`}
+                    >
+                      <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
+                        entry.speaker === "assistant" 
+                          ? "bg-primary/10 text-primary" 
+                          : "bg-muted text-muted-foreground"
+                      }`}>
+                        {entry.speaker === "assistant" ? (
+                          <Zap className="h-4 w-4" />
+                        ) : (
+                          <Users className="h-4 w-4" />
+                        )}
+                      </div>
+                      <div className={`flex-1 max-w-[80%] ${entry.speaker === "assistant" ? "" : "text-right"}`}>
+                        <div className={`inline-block p-3 rounded-lg ${
+                          entry.speaker === "assistant"
+                            ? "bg-primary/10 text-foreground"
+                            : "bg-muted text-foreground"
+                        }`}>
+                          <p className="text-sm">{entry.text}</p>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {new Date(entry.timestamp).toLocaleTimeString()}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                )
+              ) : selectedCallForTranscript?.transcript ? (
+                <div className="prose prose-sm max-w-none dark:prose-invert">
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed">
+                    {selectedCallForTranscript.transcript}
+                  </p>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                  <MessageSquare className="h-8 w-8 mb-3 opacity-50" />
+                  <p className="text-sm">Kein Transkript verfügbar</p>
+                </div>
+              )}
+              <div ref={transcriptEndRef} />
+            </div>
+          </ScrollArea>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowTranscriptDialog(false)}>
+              Schließen
             </Button>
           </DialogFooter>
         </DialogContent>

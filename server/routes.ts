@@ -32,18 +32,10 @@ import { z } from "zod";
 import cors from "cors";
 import { createOAuth2Client, generateAuthUrl, exchangeCodeForTokens, getOAuth2ClientForProject, GoogleCalendarService, GmailService } from "./google-oauth";
 import { initializeSystemAgents } from "./init-system-agents";
+import { broadcastToClients, addWebSocketClient, removeWebSocketClient, getWebSocketClients } from "./websocket-broadcast";
 
-// WebSocket clients for real-time updates
-const wsClients = new Set<WebSocket>();
-
-function broadcastToClients(event: string, data: any) {
-  const message = JSON.stringify({ event, data });
-  wsClients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(message);
-    }
-  });
-}
+// Re-export for backwards compatibility
+export { broadcastToClients };
 
 // API Key Authentication Middleware
 async function authenticateApiKey(req: Request, res: Response, next: NextFunction) {
@@ -1527,12 +1519,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             console.error("[Calendly Webhook] Failed to send confirmation email:", emailError);
           }
           
-          broadcast({ 
-            type: 'calendly_event',
-            data: {
-              type: 'scheduled',
-              event: event.payload
-            }
+          broadcastToClients('calendly_event', {
+            type: 'scheduled',
+            event: event.payload
           });
           break;
 
@@ -1553,12 +1542,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             console.error("[Calendly Webhook] Failed to send cancellation email:", emailError);
           }
           
-          broadcast({ 
-            type: 'calendly_event',
-            data: {
-              type: 'cancelled',
-              event: event.payload
-            }
+          broadcastToClients('calendly_event', {
+            type: 'cancelled',
+            event: event.payload
           });
           break;
 
@@ -1569,12 +1555,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             payload: event.payload,
             receivedAt: new Date().toISOString()
           });
-          broadcast({ 
-            type: 'calendly_event',
-            data: {
-              type: 'no_show',
-              event: event.payload
-            }
+          broadcastToClients('calendly_event', {
+            type: 'no_show',
+            event: event.payload
           });
           break;
 
@@ -3058,16 +3041,16 @@ AGENT_CREATE:
   // Client WebSocket handler
   wss.on('connection', (ws: WebSocket) => {
     console.log('WebSocket client connected');
-    wsClients.add(ws);
+    addWebSocketClient(ws);
 
     ws.on('close', () => {
       console.log('WebSocket client disconnected');
-      wsClients.delete(ws);
+      removeWebSocketClient(ws);
     });
 
     ws.on('error', (error) => {
       console.error('WebSocket error:', error);
-      wsClients.delete(ws);
+      removeWebSocketClient(ws);
     });
 
     ws.send(JSON.stringify({ event: 'connected', data: { message: 'Connected to SoVoice AI' } }));
