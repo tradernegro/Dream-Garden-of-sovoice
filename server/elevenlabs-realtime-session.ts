@@ -682,7 +682,7 @@ export class ElevenLabsRealtimeSession {
     }
   }
 
-  private cleanup() {
+  cleanup() {
     if (this.silenceTimeout) {
       clearTimeout(this.silenceTimeout);
     }

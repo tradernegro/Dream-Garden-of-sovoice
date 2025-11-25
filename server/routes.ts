@@ -261,10 +261,10 @@ export async function registerRoutes(app: Express, httpServer: Server): Promise<
         systemHealth: {
           twilio: { status: "connected", message: "Active" },
           openai: { status: "connected", message: "Active" },
-          googleCalendar: projects.some(p => p.googleAccountId) 
+          googleCalendar: projects.some(p => p.googleOAuthTokens) 
             ? { status: "connected", message: "Connected" }
             : { status: "not_connected", message: "Not Connected" },
-          gmail: projects.some(p => p.googleAccountId) 
+          gmail: projects.some(p => p.googleOAuthTokens) 
             ? { status: "connected", message: "Connected" }
             : { status: "not_connected", message: "Not Connected" },
         },
@@ -896,13 +896,10 @@ export async function registerRoutes(app: Express, httpServer: Server): Promise<
         return res.status(404).json({ error: "Agent not found" });
       }
 
-      // Update agent metadata with status
+      // Update agent - store status in description temporarily since metadata field doesn't exist
+      // TODO: Add metadata field to agents schema if needed
       const updatedAgent = await storage.updateAgent(req.params.id, {
-        metadata: {
-          ...(agent.metadata as any),
-          status,
-          statusUpdatedAt: new Date().toISOString()
-        } as any
+        description: `${agent.description || ''} [Status: ${status} at ${new Date().toISOString()}]`
       });
 
       // Broadcast status update
@@ -2527,12 +2524,13 @@ AGENT_CREATE:
             friendlyName: phoneResource.friendlyName || 'Twilio Main Line',
             status: 'active',
             monthlyFee: '1.00',
-            voiceEnabled: phoneResource.capabilities?.voice || true,
-            smsEnabled: phoneResource.capabilities?.sms || false,
-            mmsEnabled: phoneResource.capabilities?.mms || false,
-            faxEnabled: phoneResource.capabilities?.fax || false,
+            capabilities: {
+              voice: phoneResource.capabilities?.voice || true,
+              sms: phoneResource.capabilities?.sms || false,
+              mms: phoneResource.capabilities?.mms || false,
+              fax: phoneResource.capabilities?.fax || false
+            },
             metadata: {
-              twilioSid: phoneResource.sid,
               country: phoneResource.country,
               city: phoneResource.locality,
               state: phoneResource.region
@@ -2690,7 +2688,7 @@ AGENT_CREATE:
       res.json(result);
     } catch (error) {
       console.error("Failed to schedule appointment:", error);
-      res.status(500).json({ error: error.message || "Failed to schedule appointment" });
+      res.status(500).json({ error: (error as Error).message || "Failed to schedule appointment" });
     }
   });
 
@@ -2804,7 +2802,7 @@ AGENT_CREATE:
       res.json({ authUrl: url });
     } catch (error) {
       console.error("Failed to generate auth URL:", error);
-      res.status(500).json({ error: error.message || "Failed to generate authorization URL" });
+      res.status(500).json({ error: (error as Error).message || "Failed to generate authorization URL" });
     }
   });
 
@@ -2850,7 +2848,7 @@ AGENT_CREATE:
       }
     } catch (error) {
       console.error("OAuth callback error:", error);
-      return res.redirect(`/settings?error=callback_failed&details=${encodeURIComponent(error.message)}`);
+      return res.redirect(`/settings?error=callback_failed&details=${encodeURIComponent((error as Error).message)}`);
     }
   });
 
@@ -2880,7 +2878,7 @@ AGENT_CREATE:
       }
     } catch (error) {
       console.error("Failed to send email:", error);
-      res.status(500).json({ error: error.message || "Failed to send email" });
+      res.status(500).json({ error: (error as Error).message || "Failed to send email" });
     }
   });
 
