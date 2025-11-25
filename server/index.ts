@@ -1,9 +1,32 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { createServer } from "http";
+import path from "path";
+import fs from "fs";
 import { registerRoutes } from "./routes";
-import { setupVite, serveStatic, log } from "./vite";
 import { seedData } from "./seed-data";
 import { initializeSystemAgents } from "./init-system-agents";
+
+function log(message: string, source = "express") {
+  const formattedTime = new Date().toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  });
+  console.log(`${formattedTime} [${source}] ${message}`);
+}
+
+function serveStaticFiles(app: express.Express) {
+  const distPath = path.resolve(import.meta.dirname, "public");
+  if (!fs.existsSync(distPath)) {
+    console.error(`[Error] Build directory not found: ${distPath}`);
+    return;
+  }
+  app.use(express.static(distPath));
+  app.use("*", (_req, res) => {
+    res.sendFile(path.resolve(distPath, "index.html"));
+  });
+}
 
 const app = express();
 
@@ -76,10 +99,19 @@ httpServer.listen(port, "0.0.0.0", () => {
 });
 
 // ========== ASYNC INITIALIZATION (runs AFTER server is already listening) ==========
-(async () => {
+// CRITICAL: Use setImmediate to ensure health check can respond FIRST
+setImmediate(async () => {
   try {
-    // Register all routes (this attaches to the already-running server)
-    await registerRoutes(app, httpServer);
+    // Register all routes with timeout protection
+    const routeTimeout = isProduction ? 3000 : 10000;
+    const routePromise = registerRoutes(app, httpServer);
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Route registration timeout')), routeTimeout)
+    );
+    
+    await Promise.race([routePromise, timeoutPromise]).catch(err => {
+      console.error("[Init] Route registration issue:", err.message);
+    });
     log("[Init] Routes registered");
 
     // Error handler - don't throw to prevent crashes
@@ -92,16 +124,25 @@ httpServer.listen(port, "0.0.0.0", () => {
 
     // Setup Vite for development, static serving for production
     if (!isProduction) {
-      await setupVite(app, httpServer);
-      log("[Init] Vite dev server ready");
+      try {
+        // Dynamic import for development only
+        const viteModule = await import("./vite");
+        await viteModule.setupVite(app, httpServer);
+        log("[Init] Vite dev server ready");
+      } catch (err) {
+        console.error("[Init] Failed to load Vite:", err);
+        // Fallback to static serving if Vite fails
+        serveStaticFiles(app);
+        log("[Init] Static files configured (fallback)");
+      }
     } else {
-      serveStatic(app);
+      // Use inline static file serving (no Vite dependency)
+      serveStaticFiles(app);
       log("[Init] Static files configured");
     }
 
-    // Background initialization - runs after everything else is ready
+    // Background initialization - ONLY in development, NEVER in production
     if (!isProduction) {
-      // Use setImmediate to ensure this runs after current event loop
       setImmediate(async () => {
         try {
           log("[Init] Starting background initialization...");
@@ -118,9 +159,11 @@ httpServer.listen(port, "0.0.0.0", () => {
           console.error("[Init] Initialization error:", error);
         }
       });
+    } else {
+      log("[Init] Production mode - skipping seed data and system agents");
     }
   } catch (error) {
     console.error("[Fatal] Server initialization failed:", error);
     // Don't exit - keep health checks responding
   }
-})();
+});
