@@ -199,10 +199,10 @@ export class OpenAIRealtimeSession {
           recordLatency(this.callId, "interrupt_handling", interruptTime);
         }
         
-        // Only clear Twilio buffer if assistant is speaking (to stop assistant audio)
-        // Do NOT clear if user is just starting to speak (would delete their audio)
-        if (this.streamSid && this.isAssistantSpeaking) {
-          console.log(`[Session ${this.callId}] 🧹 Clearing Twilio audio buffer to stop assistant`);
+        // ALWAYS clear Twilio buffer when user speaks - even if response is "done"
+        // The Twilio buffer may still have queued audio that needs to stop immediately
+        if (this.streamSid) {
+          console.log(`[Session ${this.callId}] 🧹 Clearing Twilio audio buffer IMMEDIATELY`);
           this.sendToTwilio({
             event: "clear",
             streamSid: this.streamSid
