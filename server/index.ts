@@ -100,37 +100,34 @@ httpServer.listen(port, "0.0.0.0", () => {
   log(`Health check available at /health`);
 });
 
+// ========== CRITICAL: Configure static files IMMEDIATELY (synchronously) ==========
+// This ensures the frontend is available right away, even before routes are registered
+if (isProduction) {
+  // Production: Serve static files immediately
+  serveStaticFiles(app);
+  log("[Init] Static files configured (production)");
+}
+
+// Error handler - register early to catch any errors
+app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  const status = err.status || err.statusCode || 500;
+  const message = err.message || "Internal Server Error";
+  console.error("[Error]", message);
+  res.status(status).json({ message });
+});
+
 // ========== ASYNC INITIALIZATION (runs AFTER server is already listening) ==========
 // CRITICAL: Use setImmediate to ensure health check can respond FIRST
 setImmediate(async () => {
   try {
-    // Register all routes with FAST timeout in production (1s) to prevent deployment failures
-    // In development, allow more time (10s) for slower startup
-    const routeTimeout = isProduction ? 1000 : 10000;
-    
-    log(`[Init] Registering routes (timeout: ${routeTimeout}ms)...`);
-    
-    const routePromise = registerRoutes(app, httpServer);
-    const timeoutPromise = new Promise<void>((resolve) => 
-      setTimeout(() => {
-        log("[Init] Route registration taking too long - continuing in background");
-        resolve();
-      }, routeTimeout)
-    );
-    
-    // Don't wait for routes if they're slow - let them continue in background
-    await Promise.race([routePromise, timeoutPromise]);
-    log("[Init] Routes registered (or continuing in background)");
-
-    // Error handler - don't throw to prevent crashes
-    app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-      const status = err.status || err.statusCode || 500;
-      const message = err.message || "Internal Server Error";
-      console.error("[Error]", message);
-      res.status(status).json({ message });
+    // Register routes in background - don't wait for completion
+    // Routes will be available when ready, but server is already responding
+    registerRoutes(app, httpServer).catch(err => {
+      console.error("[Init] Route registration error (continuing):", err);
     });
+    log("[Init] Route registration started in background");
 
-    // Setup Vite for development, static serving for production
+    // Setup Vite for development only
     if (!isProduction) {
       try {
         // Dynamic import for development only
@@ -143,10 +140,6 @@ setImmediate(async () => {
         serveStaticFiles(app);
         log("[Init] Static files configured (fallback)");
       }
-    } else {
-      // Use inline static file serving (no Vite dependency)
-      serveStaticFiles(app);
-      log("[Init] Static files configured");
     }
 
     // Background initialization - ONLY in development, NEVER in production
