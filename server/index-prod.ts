@@ -78,16 +78,22 @@ httpServer.listen(port, "0.0.0.0", () => {
 
 setImmediate(async () => {
   try {
-    const routeTimeout = 3000;
+    // Fast timeout in production to prevent deployment failures
+    // Don't reject - just log and continue to allow health checks to work
+    const routeTimeout = 1000;
+    log(`[Init] Registering routes (timeout: ${routeTimeout}ms)...`);
+    
     const routePromise = registerRoutes(app, httpServer);
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Route registration timeout')), routeTimeout)
+    const timeoutPromise = new Promise<void>((resolve) => 
+      setTimeout(() => {
+        log("[Init] Route registration taking too long - continuing in background");
+        resolve();
+      }, routeTimeout)
     );
     
-    await Promise.race([routePromise, timeoutPromise]).catch(err => {
-      console.error("[Init] Route registration issue:", err.message);
-    });
-    log("[Init] Routes registered");
+    // Don't wait for routes if they're slow - let them continue in background
+    await Promise.race([routePromise, timeoutPromise]);
+    log("[Init] Routes registered (or continuing in background)");
 
     app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
       const status = err.status || err.statusCode || 500;
@@ -96,7 +102,9 @@ setImmediate(async () => {
       res.status(status).json({ message });
     });
 
-    const distPath = path.resolve(import.meta.dirname, "public");
+    // Use process.cwd() instead of import.meta.dirname for bundled code compatibility
+    // In production, the bundled code is in dist/, and static files are in dist/public/
+    const distPath = path.resolve(process.cwd(), "dist", "public");
     if (!fs.existsSync(distPath)) {
       console.error(`[Error] Build directory not found: ${distPath}`);
     } else {

@@ -17,7 +17,9 @@ function log(message: string, source = "express") {
 }
 
 function serveStaticFiles(app: express.Express) {
-  const distPath = path.resolve(import.meta.dirname, "public");
+  // Use process.cwd() instead of import.meta.dirname for bundled code compatibility
+  // In production, the bundled code is in dist/, and static files are in dist/public/
+  const distPath = path.resolve(process.cwd(), "dist", "public");
   if (!fs.existsSync(distPath)) {
     console.error(`[Error] Build directory not found: ${distPath}`);
     return;
