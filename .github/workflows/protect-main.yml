@@ -1,0 +1,573 @@
+name: Protect Long-Lived Branches
+
+# Idempotently re-applies branch protection rules so the configuration stays
+# in sync with this file. Run manually after granting the required token, or
+# it runs automatically whenever a protected branch changes.
+#
+# Protected branch patterns: main, staging, release/*
+#
+# Uses the GitHub GraphQL API (createBranchProtectionRule /
+# updateBranchProtectionRule) because wildcard patterns such as "release/*"
+# are only supported via GraphQL – the REST endpoint requires an exact branch
+# name and does not honour glob patterns.
+#
+# Prerequisites (one-time, done by a repo admin):
+#   1. Go to Settings > Actions > General > Workflow permissions and enable
+#      "Read and write permissions" so GITHUB_TOKEN can call the admin API.
+#   OR
+#   2. Create a PAT with the `repo` scope and store it as the repository secret
+#      GH_ADMIN_TOKEN. The workflow will prefer GH_ADMIN_TOKEN when present.
+#
+# The required status check context is "CI / Test & Coverage":
+#   - "CI"               = the `name` field of .github/workflows/ci.yml
+#   - "Test & Coverage"  = the `name` field of the `test` job inside that workflow
+
+on:
+  push:
+    branches:
+      - main
+      - staging
+      - "release/**"
+  create:
+  workflow_dispatch:
+
+permissions:
+  administration: write
+  issues: write
+
+# Required secrets:
+#   SLACK_WEBHOOK_URL – Incoming Webhook URL for the alert channel.
+#                       Add via Settings → Secrets and variables → Actions.
+
+jobs:
+  protect:
+    name: Enforce branch protection
+    runs-on: ubuntu-latest
+    if: github.event_name != 'create' || github.ref_type == 'branch'
+    outputs:
+      error_details: ${{ steps.apply-rules.outputs.error_details }}
+    steps:
+      - name: Apply branch protection rules via GraphQL
+        id: apply-rules
+        uses: actions/github-script@v7
+        with:
+          # Prefer a PAT stored as GH_ADMIN_TOKEN (needed when the repository's
+          # default Actions token does not have administration:write access).
+          github-token: ${{ secrets.GH_ADMIN_TOKEN || secrets.GITHUB_TOKEN }}
+          script: |
+            // Branch patterns to protect. GraphQL natively supports glob
+            // patterns (e.g. "release/*"), unlike the REST endpoint which only
+            // accepts exact branch names.
+            const PATTERNS = ["main", "staging", "release/*"];
+
+            // Desired protection settings – identical for all patterns so that
+            // every long-lived branch is guarded the same way.
+            //
+            // IMPORTANT: The DESIRED object here and the EXPECTED object in
+            // .github/workflows/check-branch-protection.yml must always be
+            // kept in sync. If you change a value here, update the matching
+            // field in the smoke-test EXPECTED block of that workflow too,
+            // otherwise the daily drift check will report false positives.
+            const DESIRED = {
+              requiresStatusChecks:          true,
+              requiredStatusCheckContexts:   ["CI / Test & Coverage"],
+              requiresStrictStatusChecks:    true,   // branch must be up to date
+              requiresApprovingReviews:      true,
+              requiredApprovingReviewCount:  1,
+              dismissesStaleReviews:         true,
+              requiresCodeOwnerReviews:      true,
+              isAdminEnforced:               true,
+              allowsForcePushes:             false,
+              allowsDeletions:               false,
+            };
+
+            // ── 1. Fetch the repository node ID and all existing rules ────────
+            const repoQuery = `
+              query($owner: String!, $name: String!) {
+                repository(owner: $owner, name: $name) {
+                  id
+                  branchProtectionRules(first: 100) {
+                    nodes { id pattern }
+                  }
+                }
+              }`;
+
+            const repoData = await github.graphql(repoQuery, {
+              owner: context.repo.owner,
+              name:  context.repo.repo,
+            });
+
+            const repoId        = repoData.repository.id;
+            const existingRules = repoData.repository.branchProtectionRules.nodes;
+
+            // Build a lookup: pattern → existing rule node id
+            const ruleIdByPattern = Object.fromEntries(
+              existingRules.map(r => [r.pattern, r.id])
+            );
+
+            // ── 2. Upsert a protection rule for every pattern ─────────────────
+            const createMutation = `
+              mutation($input: CreateBranchProtectionRuleInput!) {
+                createBranchProtectionRule(input: $input) {
+                  branchProtectionRule { id pattern }
+                }
+              }`;
+
+            const updateMutation = `
+              mutation($input: UpdateBranchProtectionRuleInput!) {
+                updateBranchProtectionRule(input: $input) {
+                  branchProtectionRule { id pattern }
+                }
+              }`;
+
+            let allOk = true;
+            const patternErrors = [];
+
+            for (const pattern of PATTERNS) {
+              const existingId = ruleIdByPattern[pattern];
+              try {
+                if (existingId) {
+                  await github.graphql(updateMutation, {
+                    input: { branchProtectionRuleId: existingId, ...DESIRED },
+                  });
+                  console.log(`✓ [${pattern}] Updated existing branch protection rule.`);
+                } else {
+                  await github.graphql(createMutation, {
+                    input: { repositoryId: repoId, pattern, ...DESIRED },
+                  });
+                  console.log(`✓ [${pattern}] Created new branch protection rule.`);
+                }
+                console.log(`    Required check : CI / Test & Coverage (strict: branches must be up to date)`);
+                console.log(`    Required reviews: 1 approving review (dismiss stale reviews: true)`);
+                console.log(`    Enforce admins : true`);
+                console.log(`    Allow force pushes: false`);
+                console.log(`    Allow deletions   : false`);
+              } catch (err) {
+                core.error(`[${pattern}] Failed to apply protection rule: ${err.message}`);
+                patternErrors.push({ pattern, message: err.message });
+                allOk = false;
+              }
+            }
+
+            // Expose per-pattern error details so the notify-on-failure job
+            // can include the real error reason in the alert issue.
+            core.setOutput('error_details', JSON.stringify(patternErrors));
+
+            if (!allOk) {
+              core.setFailed(
+                "One or more branch protection rules could not be applied. " +
+                "Ensure the token has admin access to the repository " +
+                "(GH_ADMIN_TOKEN secret with `repo` scope, or Settings > Actions > " +
+                "General > Workflow permissions set to 'Read and write permissions')."
+              );
+            }
+
+      - name: Smoke-test – verify protection rules are in effect
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GH_ADMIN_TOKEN || secrets.GITHUB_TOKEN }}
+          script: |
+            // Start with the concrete long-lived branches, then add any
+            // existing release/* branches discovered at runtime.
+            const BASE_BRANCHES = ["main", "staging"];
+
+            // Paginate through all branches and collect those matching release/*
+            const releaseBranches = [];
+            for await (const page of github.paginate.iterator(
+              github.rest.repos.listBranches,
+              { owner: context.repo.owner, repo: context.repo.repo, per_page: 100 }
+            )) {
+              for (const b of page.data) {
+                if (b.name.startsWith("release/")) releaseBranches.push(b.name);
+              }
+            }
+
+            if (releaseBranches.length > 0) {
+              console.log(`Found release branches to verify: ${releaseBranches.join(", ")}`);
+            }
+
+            const EXACT_BRANCHES = [...BASE_BRANCHES, ...releaseBranches];
+
+            // Key fields we care about and their expected values.
+            // These mirror the DESIRED object in the preceding step.
+            const EXPECTED = {
+              // required_status_checks.strict  → branch must be up to date
+              strict:               true,
+              // pull_request_reviews.dismiss_stale_reviews
+              dismiss_stale_reviews: true,
+              // pull_request_reviews.require_code_owner_reviews
+              require_code_owner_reviews: true,
+              // enforce_admins.enabled
+              enforce_admins:       true,
+              // required_approving_review_count
+              required_approving_review_count: 1,
+              // allow_force_pushes.enabled
+              allow_force_pushes:   false,
+              // allow_deletions.enabled
+              allow_deletions:      false,
+            };
+
+            let allOk = true;
+
+            // ── GraphQL assertion for the release/* wildcard rule ─────────────
+            // When no concrete release branch exists the REST getBranchProtection
+            // API has nothing to call, so we verify the wildcard protection rule
+            // directly via GraphQL instead.
+            if (releaseBranches.length === 0) {
+              console.log("\n── Verifying release/* wildcard rule via GraphQL ──");
+              const ruleQuery = `
+                query($owner: String!, $name: String!) {
+                  repository(owner: $owner, name: $name) {
+                    branchProtectionRules(first: 100) {
+                      nodes {
+                        pattern
+                        requiresStrictStatusChecks
+                        dismissesStaleReviews
+                        requiresCodeOwnerReviews
+                        isAdminEnforced
+                        requiredApprovingReviewCount
+                        allowsForcePushes
+                        allowsDeletions
+                      }
+                    }
+                  }
+                }`;
+
+              let ruleData;
+              try {
+                ruleData = await github.graphql(ruleQuery, {
+                  owner: context.repo.owner,
+                  name:  context.repo.repo,
+                });
+              } catch (err) {
+                core.error(`[release/*] Could not query branch protection rules via GraphQL: ${err.message}`);
+                allOk = false;
+                ruleData = null;
+              }
+
+              if (ruleData) {
+                const releaseRule = ruleData.repository.branchProtectionRules.nodes
+                  .find(r => r.pattern === "release/*");
+
+                if (!releaseRule) {
+                  core.error("[release/*] No branch protection rule found for pattern 'release/*'.");
+                  allOk = false;
+                } else {
+                  function assertGql(label, actual, expected) {
+                    if (actual === expected) {
+                      console.log(`  ✓ ${label}: ${actual}`);
+                    } else {
+                      core.error(`  ✗ [release/*] ${label}: expected ${expected}, got ${actual}`);
+                      allOk = false;
+                    }
+                  }
+                  assertGql("requiresStrictStatusChecks",   releaseRule.requiresStrictStatusChecks,   true);
+                  assertGql("dismissesStaleReviews",         releaseRule.dismissesStaleReviews,         true);
+                  assertGql("requiresCodeOwnerReviews",      releaseRule.requiresCodeOwnerReviews,      true);
+                  assertGql("isAdminEnforced",               releaseRule.isAdminEnforced,               true);
+                  assertGql("requiredApprovingReviewCount",  releaseRule.requiredApprovingReviewCount,  1);
+                  assertGql("allowsForcePushes",             releaseRule.allowsForcePushes,             false);
+                  assertGql("allowsDeletions",               releaseRule.allowsDeletions,               false);
+                }
+              }
+            }
+
+            // ── REST assertions for each concrete branch ──────────────────────
+            for (const branch of EXACT_BRANCHES) {
+              console.log(`\n── Verifying protection for branch: ${branch} ──`);
+
+              let protection;
+              try {
+                const resp = await github.rest.repos.getBranchProtection({
+                  owner: context.repo.owner,
+                  repo:  context.repo.repo,
+                  branch,
+                });
+                protection = resp.data;
+              } catch (err) {
+                core.error(`[${branch}] Could not fetch branch protection: ${err.message}`);
+                allOk = false;
+                continue;
+              }
+
+              // Helper that records a failure when a field doesn't match.
+              function assert(label, actual, expected) {
+                if (actual === expected) {
+                  console.log(`  ✓ ${label}: ${actual}`);
+                } else {
+                  core.error(`  ✗ [${branch}] ${label}: expected ${expected}, got ${actual}`);
+                  allOk = false;
+                }
+              }
+
+              // strict (required_status_checks)
+              const strict = protection.required_status_checks?.strict ?? null;
+              assert("required_status_checks.strict", strict, EXPECTED.strict);
+
+              // dismiss_stale_reviews
+              const dismissStale =
+                protection.required_pull_request_reviews?.dismiss_stale_reviews ?? null;
+              assert(
+                "required_pull_request_reviews.dismiss_stale_reviews",
+                dismissStale,
+                EXPECTED.dismiss_stale_reviews
+              );
+
+              // require_code_owner_reviews
+              const codeOwnerReviews =
+                protection.required_pull_request_reviews?.require_code_owner_reviews ?? null;
+              assert(
+                "required_pull_request_reviews.require_code_owner_reviews",
+                codeOwnerReviews,
+                EXPECTED.require_code_owner_reviews
+              );
+
+              // enforce_admins
+              const enforceAdmins = protection.enforce_admins?.enabled ?? null;
+              assert("enforce_admins.enabled", enforceAdmins, EXPECTED.enforce_admins);
+
+              // required_approving_review_count
+              const reviewCount =
+                protection.required_pull_request_reviews?.required_approving_review_count ?? null;
+              assert(
+                "required_pull_request_reviews.required_approving_review_count",
+                reviewCount,
+                EXPECTED.required_approving_review_count
+              );
+
+              // allow_force_pushes
+              const forcePushes = protection.allow_force_pushes?.enabled ?? null;
+              assert("allow_force_pushes.enabled", forcePushes, EXPECTED.allow_force_pushes);
+
+              // allow_deletions
+              const allowDeletions = protection.allow_deletions?.enabled ?? null;
+              assert("allow_deletions.enabled", allowDeletions, EXPECTED.allow_deletions);
+            }
+
+            if (!allOk) {
+              core.setFailed(
+                "Branch protection smoke-test FAILED: one or more fields do not match " +
+                "the desired configuration. Check the step log above for details."
+              );
+            } else {
+              console.log("\n✓ All branch protection assertions passed.");
+            }
+
+  close-alert:
+    name: Close branch-protection alert on success
+    needs: protect
+    if: success()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close any open branch-protection-failure issues for this branch
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const branch   = context.ref.replace('refs/heads/', '') || context.payload.ref || '(unknown)';
+            const runUrl   = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const title    = `Branch protection failed to apply (${branch})`;
+
+            // Find all open issues with the branch-protection-failure label
+            // that match the title for this branch.
+            const existing = await github.rest.issues.listForRepo({
+              owner:  context.repo.owner,
+              repo:   context.repo.repo,
+              state:  'open',
+              labels: 'branch-protection-failure',
+            });
+
+            const toClose = existing.data.filter(i => i.title === title);
+
+            if (toClose.length === 0) {
+              console.log(`No open branch-protection-failure issues found for branch "${branch}". Nothing to close.`);
+            }
+
+            for (const issue of toClose) {
+              const comment = [
+                `## Branch protection successfully re-applied`,
+                ``,
+                `Protection rules for \`${branch}\` were applied successfully by`,
+                `[run ${context.runId}](${runUrl}).`,
+                ``,
+                `No further action is required — closing this issue automatically.`,
+              ].join('\n');
+
+              await github.rest.issues.createComment({
+                owner:        context.repo.owner,
+                repo:         context.repo.repo,
+                issue_number: issue.number,
+                body:         comment,
+              });
+
+              await github.rest.issues.update({
+                owner:        context.repo.owner,
+                repo:         context.repo.repo,
+                issue_number: issue.number,
+                state:        'closed',
+                state_reason: 'completed',
+              });
+
+              console.log(`Closed issue #${issue.number} (protection re-applied on ${branch}).`);
+            }
+
+  notify-on-failure:
+    name: Alert team on failure
+    needs: protect
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open a GitHub issue alerting the team
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const branch      = context.ref.replace('refs/heads/', '') || context.payload.ref || '(unknown)';
+            const runUrl      = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const triggerEvent = context.eventName;
+
+            // Parse per-pattern errors forwarded from the protect job.
+            // Falls back gracefully if the output is absent or malformed.
+            let patternErrors = [];
+            try {
+              const raw = '${{ needs.protect.outputs.error_details }}';
+              if (raw) patternErrors = JSON.parse(raw);
+            } catch (_) {}
+
+            const errorSection = patternErrors.length
+              ? [
+                  `### Error details`,
+                  ``,
+                  `| Pattern | Error |`,
+                  `|---------|-------|`,
+                  ...patternErrors.map(e => `| \`${e.pattern}\` | ${e.message} |`),
+                  ``,
+                ].join('\n')
+              : [
+                  `### Error details`,
+                  ``,
+                  `No per-pattern error details were captured. ` +
+                  `Check the [failed run](${runUrl}) for the full log.`,
+                  ``,
+                ].join('\n');
+
+            const title = `Branch protection failed to apply (${branch})`;
+            const body  = [
+              `## Branch protection rule application failed`,
+              ``,
+              `| Field   | Value |`,
+              `|---------|-------|`,
+              `| Branch  | \`${branch}\` |`,
+              `| Trigger | \`${triggerEvent}\` |`,
+              `| Run     | [View failed run](${runUrl}) |`,
+              ``,
+              errorSection,
+              `### What this means`,
+              `One or more branch protection rules could not be applied by the`,
+              `\`Protect Long-Lived Branches\` workflow. The branch listed above may`,
+              `currently be **unprotected**.`,
+              ``,
+              `### Likely cause`,
+              `The token used by the workflow does not have \`administration:write\``,
+              `access. Check either:`,
+              `- **Settings → Actions → General → Workflow permissions** — set to`,
+              `  _"Read and write permissions"_, or`,
+              `- The \`GH_ADMIN_TOKEN\` repository secret — must be a PAT with the`,
+              `  \`repo\` scope granted by a repository admin.`,
+              ``,
+              `Please investigate and re-run the workflow once the token issue is`,
+              `resolved.`,
+            ].join('\n');
+
+            // Avoid duplicate open issues for the same branch.
+            // Cap at 5 — in practice there should be at most one open issue of
+            // this type, so a small limit keeps the lookup fast at scale.
+            const existing = await github.rest.issues.listForRepo({
+              owner:    context.repo.owner,
+              repo:     context.repo.repo,
+              state:    'open',
+              labels:   'branch-protection-failure',
+              per_page: 5,
+            });
+            console.log(`Open branch-protection-failure issues checked: ${existing.data.length}`);
+
+            const duplicate = existing.data.find(i => i.title === title);
+            if (duplicate) {
+              // Append the new error details to the existing open issue as a comment.
+              const commentBody = [
+                `Failure recurred — [run ${context.runId}](${runUrl}) ` +
+                `on \`${branch}\` (trigger: \`${triggerEvent}\`).`,
+                ``,
+                errorSection,
+              ].join('\n');
+              await github.rest.issues.createComment({
+                owner:        context.repo.owner,
+                repo:         context.repo.repo,
+                issue_number: duplicate.number,
+                body:         commentBody,
+              });
+              console.log(`Appended comment to existing issue #${duplicate.number}`);
+            } else {
+              // No open issue found — check for a previously closed one to reopen.
+              // Fetch only the most recent 10 closed issues so the lookup stays
+              // fast regardless of how many closed issues accumulate over time.
+              const CLOSED_SEARCH_LIMIT = 10;
+              const closed = await github.rest.issues.listForRepo({
+                owner:    context.repo.owner,
+                repo:     context.repo.repo,
+                state:    'closed',
+                labels:   'branch-protection-failure',
+                per_page: CLOSED_SEARCH_LIMIT,
+              });
+              console.log(`Checked ${closed.data.length} most-recent closed branch-protection-failure issue(s) (limit: ${CLOSED_SEARCH_LIMIT}).`);
+
+              const previouslyClosed = closed.data.find(i => i.title === title);
+              if (previouslyClosed) {
+                // Reopen the existing closed issue and append a new failure comment.
+                const commentBody = [
+                  `Protection broke again — [run ${context.runId}](${runUrl}) ` +
+                  `on \`${branch}\` (trigger: \`${triggerEvent}\`).`,
+                  ``,
+                  errorSection,
+                ].join('\n');
+                await github.rest.issues.createComment({
+                  owner:        context.repo.owner,
+                  repo:         context.repo.repo,
+                  issue_number: previouslyClosed.number,
+                  body:         commentBody,
+                });
+                await github.rest.issues.update({
+                  owner:        context.repo.owner,
+                  repo:         context.repo.repo,
+                  issue_number: previouslyClosed.number,
+                  state:        'open',
+                });
+                console.log(`Reopened previously closed issue #${previouslyClosed.number}`);
+              } else {
+                // No open or closed issue exists — create a fresh one.
+                const issue = await github.rest.issues.create({
+                  owner:  context.repo.owner,
+                  repo:   context.repo.repo,
+                  title,
+                  body,
+                  labels: ['branch-protection-failure'],
+                });
+                console.log(`Opened issue #${issue.data.number}: ${issue.data.html_url}`);
+              }
+            }
+
+      - name: Send Slack notification
+        if: ${{ secrets.SLACK_WEBHOOK_URL != '' }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          BRANCH: ${{ github.ref_name || github.ref }}
+          EVENT: ${{ github.event_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          PAYLOAD=$(printf '{"text":"*Branch protection failed to apply*\n• *Branch:* `%s`\n• *Trigger:* `%s`\n• *Run:* <%s|View failed run>"}' \
+            "${BRANCH}" "${EVENT}" "${RUN_URL}")
+          curl --silent --show-error --fail \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -d "${PAYLOAD}" \
+            "${SLACK_WEBHOOK_URL}"
