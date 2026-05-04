@@ -1,0 +1,25 @@
+{
+  "patterns": ["main", "staging", "release/*"],
+  "base_branches": ["main", "staging"],
+  "desired": {
+    "requiresStatusChecks":         true,
+    "requiredStatusCheckContexts":  ["CI / Test & Coverage"],
+    "requiresStrictStatusChecks":   true,
+    "requiresApprovingReviews":     true,
+    "requiredApprovingReviewCount": 1,
+    "dismissesStaleReviews":        true,
+    "requiresCodeOwnerReviews":     true,
+    "isAdminEnforced":              true,
+    "allowsForcePushes":            false,
+    "allowsDeletions":              false
+  },
+  "expected": {
+    "strict":                          true,
+    "dismiss_stale_reviews":           true,
+    "require_code_owner_reviews":      true,
+    "enforce_admins":                  true,
+    "required_approving_review_count": 1,
+    "allow_force_pushes":              false,
+    "allow_deletions":                 false
+  }
+}
