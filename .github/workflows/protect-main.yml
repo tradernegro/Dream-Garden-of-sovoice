@@ -11,20 +11,27 @@ name: Protect Long-Lived Branches
 # are only supported via GraphQL – the REST endpoint requires an exact branch
 # name and does not honour glob patterns.
 #
-# Prerequisites (one-time, done by a repo admin):
-#   1. Go to Settings > Actions > General > Workflow permissions and enable
-#      "Read and write permissions" so GITHUB_TOKEN can call the admin API.
-#   OR
-#   2. Create a PAT with the `repo` scope and store it as the repository secret
-#      GH_ADMIN_TOKEN. The workflow will prefer GH_ADMIN_TOKEN when present.
-#
-# GitHub plan requirement:
+# GitHub plan requirement (applies BEFORE the token prerequisites below):
 #   Branch protection rules on PRIVATE repositories require GitHub Pro (or
-#   GitHub Team / Enterprise). On the free plan the GraphQL mutations will fail
-#   with "Upgrade to GitHub Pro or make this repository public to enable this
-#   feature." — regardless of which token is used.
-#   Resolution: upgrade the tradernegro account to GitHub Pro, OR change the
-#   repository visibility to public (Settings → Danger Zone → Change visibility).
+#   GitHub Team / Enterprise). On the free plan every run will fail with:
+#     "Upgrade to GitHub Pro or make this repository public to enable this feature."
+#   — regardless of which token is used.
+#   Resolution: upgrade to GitHub Pro OR make the repo public
+#   (Settings → Danger Zone → Change visibility → Public).
+#
+# Token prerequisites (one-time, done by a repo admin):
+#   Option A – Use the default GITHUB_TOKEN (no extra secret needed):
+#     Go to Settings → Actions → General → Workflow permissions and choose
+#     "Read and write permissions". The `permissions` block in this file only
+#     requests `issues: write`; administration rights for GITHUB_TOKEN come
+#     exclusively from the repository settings UI, not from the permissions block.
+#     NOTE: `administration` is NOT a valid GitHub Actions GITHUB_TOKEN scope and
+#     must not be added to the permissions block — GitHub will reject the workflow.
+#   Option B – Use a dedicated PAT (recommended for restricted environments):
+#     Create a classic PAT with the `repo` scope (or a fine-grained PAT with
+#     `administration: write`) and store it as the repository secret GH_ADMIN_TOKEN.
+#     The workflow uses ${{ secrets.GH_ADMIN_TOKEN || secrets.GITHUB_TOKEN }}, so
+#     GH_ADMIN_TOKEN takes precedence when present.
 #
 # The required status check context is "CI / Test & Coverage":
 #   - "CI"               = the `name` field of .github/workflows/ci.yml
