@@ -32,7 +32,6 @@ on:
   workflow_dispatch:
 
 permissions:
-  administration: write
   issues: write
 
 # Required secrets:
@@ -557,13 +556,16 @@ jobs:
             }
 
       - name: Send Slack notification
-        if: ${{ secrets.SLACK_WEBHOOK_URL != '' }}
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           BRANCH: ${{ github.ref_name || github.ref }}
           EVENT: ${{ github.event_name }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          if [ -z "${SLACK_WEBHOOK_URL}" ]; then
+            echo "SLACK_WEBHOOK_URL not configured — skipping Slack notification."
+            exit 0
+          fi
           PAYLOAD=$(printf '{"text":"*Branch protection failed to apply*\n• *Branch:* `%s`\n• *Trigger:* `%s`\n• *Run:* <%s|View failed run>"}' \
             "${BRANCH}" "${EVENT}" "${RUN_URL}")
           curl --silent --show-error --fail \
