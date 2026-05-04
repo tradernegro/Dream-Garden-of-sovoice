@@ -18,6 +18,14 @@ name: Protect Long-Lived Branches
 #   2. Create a PAT with the `repo` scope and store it as the repository secret
 #      GH_ADMIN_TOKEN. The workflow will prefer GH_ADMIN_TOKEN when present.
 #
+# GitHub plan requirement:
+#   Branch protection rules on PRIVATE repositories require GitHub Pro (or
+#   GitHub Team / Enterprise). On the free plan the GraphQL mutations will fail
+#   with "Upgrade to GitHub Pro or make this repository public to enable this
+#   feature." — regardless of which token is used.
+#   Resolution: upgrade the tradernegro account to GitHub Pro, OR change the
+#   repository visibility to public (Settings → Danger Zone → Change visibility).
+#
 # The required status check context is "CI / Test & Coverage":
 #   - "CI"               = the `name` field of .github/workflows/ci.yml
 #   - "Test & Coverage"  = the `name` field of the `test` job inside that workflow
@@ -46,6 +54,9 @@ jobs:
     outputs:
       error_details: ${{ steps.apply-rules.outputs.error_details }}
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
       - name: Apply branch protection rules via GraphQL
         id: apply-rules
         uses: actions/github-script@v7
@@ -54,31 +65,22 @@ jobs:
           # default Actions token does not have administration:write access).
           github-token: ${{ secrets.GH_ADMIN_TOKEN || secrets.GITHUB_TOKEN }}
           script: |
+            // Load the single source of truth for branch protection settings.
+            // Edit .github/branch-protection-config.json to change any value;
+            // both this workflow and check-branch-protection.yml will pick it
+            // up automatically.
+            const cfg = JSON.parse(
+              require('fs').readFileSync('.github/branch-protection-config.json', 'utf8')
+            );
+
             // Branch patterns to protect. GraphQL natively supports glob
             // patterns (e.g. "release/*"), unlike the REST endpoint which only
             // accepts exact branch names.
-            const PATTERNS = ["main", "staging", "release/*"];
+            const PATTERNS = cfg.patterns;
 
             // Desired protection settings – identical for all patterns so that
             // every long-lived branch is guarded the same way.
-            //
-            // IMPORTANT: The DESIRED object here and the EXPECTED object in
-            // .github/workflows/check-branch-protection.yml must always be
-            // kept in sync. If you change a value here, update the matching
-            // field in the smoke-test EXPECTED block of that workflow too,
-            // otherwise the daily drift check will report false positives.
-            const DESIRED = {
-              requiresStatusChecks:          true,
-              requiredStatusCheckContexts:   ["CI / Test & Coverage"],
-              requiresStrictStatusChecks:    true,   // branch must be up to date
-              requiresApprovingReviews:      true,
-              requiredApprovingReviewCount:  1,
-              dismissesStaleReviews:         true,
-              requiresCodeOwnerReviews:      true,
-              isAdminEnforced:               true,
-              allowsForcePushes:             false,
-              allowsDeletions:               false,
-            };
+            const DESIRED = cfg.desired;
 
             // ── 1. Fetch the repository node ID and all existing rules ────────
             const repoQuery = `
@@ -166,9 +168,15 @@ jobs:
         with:
           github-token: ${{ secrets.GH_ADMIN_TOKEN || secrets.GITHUB_TOKEN }}
           script: |
+            // Load the shared config so EXPECTED stays in sync with DESIRED
+            // (both read from .github/branch-protection-config.json).
+            const cfg = JSON.parse(
+              require('fs').readFileSync('.github/branch-protection-config.json', 'utf8')
+            );
+
             // Start with the concrete long-lived branches, then add any
             // existing release/* branches discovered at runtime.
-            const BASE_BRANCHES = ["main", "staging"];
+            const BASE_BRANCHES = cfg.base_branches;
 
             // Paginate through all branches and collect those matching release/*
             const releaseBranches = [];
@@ -187,24 +195,9 @@ jobs:
 
             const EXACT_BRANCHES = [...BASE_BRANCHES, ...releaseBranches];
 
-            // Key fields we care about and their expected values.
-            // These mirror the DESIRED object in the preceding step.
-            const EXPECTED = {
-              // required_status_checks.strict  → branch must be up to date
-              strict:               true,
-              // pull_request_reviews.dismiss_stale_reviews
-              dismiss_stale_reviews: true,
-              // pull_request_reviews.require_code_owner_reviews
-              require_code_owner_reviews: true,
-              // enforce_admins.enabled
-              enforce_admins:       true,
-              // required_approving_review_count
-              required_approving_review_count: 1,
-              // allow_force_pushes.enabled
-              allow_force_pushes:   false,
-              // allow_deletions.enabled
-              allow_deletions:      false,
-            };
+            // Key fields we care about and their expected values –
+            // loaded from the shared config so there is one source of truth.
+            const EXPECTED = cfg.expected;
 
             let allOk = true;
 
@@ -260,13 +253,13 @@ jobs:
                       allOk = false;
                     }
                   }
-                  assertGql("requiresStrictStatusChecks",   releaseRule.requiresStrictStatusChecks,   true);
-                  assertGql("dismissesStaleReviews",         releaseRule.dismissesStaleReviews,         true);
-                  assertGql("requiresCodeOwnerReviews",      releaseRule.requiresCodeOwnerReviews,      true);
-                  assertGql("isAdminEnforced",               releaseRule.isAdminEnforced,               true);
-                  assertGql("requiredApprovingReviewCount",  releaseRule.requiredApprovingReviewCount,  1);
-                  assertGql("allowsForcePushes",             releaseRule.allowsForcePushes,             false);
-                  assertGql("allowsDeletions",               releaseRule.allowsDeletions,               false);
+                  assertGql("requiresStrictStatusChecks",   releaseRule.requiresStrictStatusChecks,   cfg.desired.requiresStrictStatusChecks);
+                  assertGql("dismissesStaleReviews",         releaseRule.dismissesStaleReviews,         cfg.desired.dismissesStaleReviews);
+                  assertGql("requiresCodeOwnerReviews",      releaseRule.requiresCodeOwnerReviews,      cfg.desired.requiresCodeOwnerReviews);
+                  assertGql("isAdminEnforced",               releaseRule.isAdminEnforced,               cfg.desired.isAdminEnforced);
+                  assertGql("requiredApprovingReviewCount",  releaseRule.requiredApprovingReviewCount,  cfg.desired.requiredApprovingReviewCount);
+                  assertGql("allowsForcePushes",             releaseRule.allowsForcePushes,             cfg.desired.allowsForcePushes);
+                  assertGql("allowsDeletions",               releaseRule.allowsDeletions,               cfg.desired.allowsDeletions);
                 }
               }
             }
