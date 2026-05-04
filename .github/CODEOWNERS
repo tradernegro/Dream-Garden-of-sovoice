@@ -1,0 +1,24 @@
+# CODEOWNERS — maps file paths to the GitHub users or teams responsible for
+# reviewing changes. GitHub uses this file to automatically request reviews
+# when a pull request touches the matched paths.
+#
+# Syntax: <pattern>  <@user or @org/team> [<@user or @org/team> ...]
+#
+# The last matching rule wins. A catch-all entry at the top ensures every PR
+# gets at least one reviewer; add more specific rules below to route reviews
+# for particular areas to the right people.
+
+# Catch-all: every file requires a review from the core team.
+*  @alexRivera @jordanPatel
+
+# Frontend — client-side code and UI components.
+client/  @morganChen @alexRivera
+
+# Backend — server routes, storage, and API logic.
+server/  @jordanPatel @caseyNguyen
+
+# Shared types and schema.
+shared/  @jordanPatel @morganChen
+
+# CI / GitHub configuration changes require extra scrutiny.
+.github/  @alexRivera @jordanPatel @caseyNguyen
