@@ -287,6 +287,13 @@ jobs:
                 });
                 protection = resp.data;
               } catch (err) {
+                // A branch that doesn't exist yet has no protection to verify via
+                // REST. The protection rule for its pattern was already validated
+                // via GraphQL above. Skip REST verification for non-existent branches.
+                if (err.message && err.message.includes('Branch not found')) {
+                  console.log(`  (branch "${branch}" does not exist yet — skipping REST verification; pattern rule was confirmed via GraphQL)`);
+                  continue;
+                }
                 core.error(`[${branch}] Could not fetch branch protection: ${err.message}`);
                 allOk = false;
                 continue;
