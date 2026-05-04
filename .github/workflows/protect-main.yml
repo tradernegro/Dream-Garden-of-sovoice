@@ -20,18 +20,18 @@ name: Protect Long-Lived Branches
 #   (Settings → Danger Zone → Change visibility → Public).
 #
 # Token prerequisites (one-time, done by a repo admin):
-#   Option A – Use the default GITHUB_TOKEN (no extra secret needed):
+#   Option A – Use a dedicated PAT (recommended, and currently configured):
+#     Store a classic PAT with the `repo` scope (or a fine-grained PAT with
+#     `administration: write`) as the repository secret GH_ADMIN_TOKEN.
+#     The protect job uses ${{ secrets.GH_ADMIN_TOKEN || secrets.GITHUB_TOKEN }},
+#     so GH_ADMIN_TOKEN takes precedence when present. This is the primary path.
+#   Option B – Use the default GITHUB_TOKEN (no extra secret, UI change only):
 #     Go to Settings → Actions → General → Workflow permissions and choose
-#     "Read and write permissions". The `permissions` block in this file only
-#     requests `issues: write`; administration rights for GITHUB_TOKEN come
-#     exclusively from the repository settings UI, not from the permissions block.
-#     NOTE: `administration` is NOT a valid GitHub Actions GITHUB_TOKEN scope and
-#     must not be added to the permissions block — GitHub will reject the workflow.
-#   Option B – Use a dedicated PAT (recommended for restricted environments):
-#     Create a classic PAT with the `repo` scope (or a fine-grained PAT with
-#     `administration: write`) and store it as the repository secret GH_ADMIN_TOKEN.
-#     The workflow uses ${{ secrets.GH_ADMIN_TOKEN || secrets.GITHUB_TOKEN }}, so
-#     GH_ADMIN_TOKEN takes precedence when present.
+#     "Read and write permissions". The protect job's permissions are inherited
+#     from the repo setting when no GH_ADMIN_TOKEN secret is present.
+#     NOTE: GitHub Actions does not support `administration` as a `permissions`
+#     block scope — admin access via GITHUB_TOKEN must be granted through the
+#     repository Settings UI, not through the workflow permissions block.
 #
 # The required status check context is "CI / Test & Coverage":
 #   - "CI"               = the `name` field of .github/workflows/ci.yml
@@ -46,8 +46,11 @@ on:
   create:
   workflow_dispatch:
 
-permissions:
-  issues: write
+# No top-level permissions block: the protect job uses GH_ADMIN_TOKEN (a PAT)
+# which is not subject to the workflow permissions block. Leaving permissions
+# unrestricted at the workflow level ensures GITHUB_TOKEN retains its full
+# configured scope for the fallback path (Option B above). Job-level permissions
+# are declared on the close-alert and notify-on-failure jobs below.
 
 # Required secrets:
 #   SLACK_WEBHOOK_URL – Incoming Webhook URL for the alert channel.
@@ -357,6 +360,8 @@ jobs:
     needs: protect
     if: success()
     runs-on: ubuntu-latest
+    permissions:
+      issues: write
     steps:
       - name: Close any open branch-protection-failure issues for this branch
         uses: actions/github-script@v7
@@ -415,6 +420,8 @@ jobs:
     needs: protect
     if: failure()
     runs-on: ubuntu-latest
+    permissions:
+      issues: write
     steps:
       - name: Open a GitHub issue alerting the team
         uses: actions/github-script@v7
